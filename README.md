@@ -4,7 +4,7 @@ A scanner that analyzes Polymarket prediction markets by examining the profit/lo
 
 ## Live Dashboard
 
-**[View Dashboard](https://poly-holder-profit-analysis.streamlit.app)**
+**[View Dashboard](https://polyholderprofitanalysis-j4j5r2yypgq6qh45fpkzvi.streamlit.app/)**
 
 ## Features
 
