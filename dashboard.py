@@ -341,19 +341,14 @@ def render_dashboard(repo):
 
     df = pd.DataFrame(processed_data)
 
-    # 3. Search & Sort Controls
-    col_search, col_sort, col_order = st.columns([2, 1, 1])
-    search_query = col_search.text_input("🔍 Search Markets", placeholder="Type to filter...", label_visibility="collapsed")
-
-    sort_options = {"Score": "Score", "Imbalance": "Imbalance", "PNL Diff": "PNL Diff", "Expires": "Expires"}
-    sort_by = col_sort.selectbox("Sort by", options=list(sort_options.keys()), index=0, label_visibility="collapsed")
-    sort_order = col_order.selectbox("Order", options=["High → Low", "Low → High"], index=0, label_visibility="collapsed")
-    ascending = sort_order == "Low → High"
+    # 3. Search Bar
+    search_query = st.text_input("🔍 Search Markets", placeholder="Type to filter...", label_visibility="collapsed")
 
     if not df.empty:
         if search_query:
             df = df[df["Market"].str.lower().str.contains(search_query.lower(), na=False)]
-        df = df.sort_values(by=sort_options[sort_by], ascending=ascending).head(100)
+        # Default sort by Score (highest first)
+        df = df.sort_values(by="Score", ascending=False).head(100)
 
     # 4. Layout: Side-by-Side (Table Left, Analysis Right)
     col_list, col_detail = st.columns([1.5, 1])
@@ -361,63 +356,53 @@ def render_dashboard(repo):
     with col_list:
         st.markdown("<div class='terminal-header'>MARKET OPPORTUNITIES</div>", unsafe_allow_html=True)
 
-        # Prepare Table Data - reset index for consistent selection
-        table_df = df.copy().reset_index(drop=True)
-        table_df["Time"] = table_df["Expires"].apply(format_time_remaining)
+        if df.empty:
+            st.info("No markets found.")
+        else:
+            # Prepare table data
+            table_df = df.copy().reset_index(drop=True)
 
-        # Interactive dataframe with row selection
-        selection = st.dataframe(
-            table_df,
-            column_order=["Market", "Imbalance", "PNL Diff", "Time"],
-            column_config={
-                "Market": st.column_config.TextColumn("Market", width="medium"),
-                "Imbalance": st.column_config.ProgressColumn(
-                    "Imbal.",
-                    format="%.0f%%",
-                    min_value=0,
-                    max_value=100,
-                    help="Profitable Holder Imbalance (% difference between sides)"
-                ),
-                "PNL Diff": st.column_config.NumberColumn(
-                    "PNL Δ",
-                    format="$%d",
-                ),
-                "Time": st.column_config.TextColumn("Exp"),
-            },
-            hide_index=True,
-            use_container_width=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            height=700,
-            key="market_table"
-        )
+            # Create scrollable container with clickable market list
+            with st.container(height=700):
+                for idx, row in table_df.iterrows():
+                    imbal = row["Imbalance"]
+                    pnl_diff = row["PNL Diff"]
+                    time_str = format_time_remaining(row["Expires"])
+                    market_name = row["Market"][:80] + "..." if len(row["Market"]) > 80 else row["Market"]
+
+                    # Check if this market is selected
+                    is_selected = st.session_state.get("selected_market_id") == row["market_id"]
+
+                    # Create clickable button for each market
+                    btn_label = f"**{market_name}**\n\n`Imbal: {imbal:.0f}%` · `PNL Δ: ${pnl_diff:,.0f}` · `Exp: {time_str}`"
+
+                    if st.button(
+                        btn_label,
+                        key=f"market_{idx}",
+                        use_container_width=True,
+                        type="primary" if is_selected else "secondary"
+                    ):
+                        st.session_state["selected_market_id"] = row["market_id"]
+                        st.session_state["selected_raw_data"] = row["raw_data"]
+                        st.rerun()
 
     # 5. Analysis Panel (Right Side)
     with col_detail:
-        selected_record = None
+        selected_data = None
 
-        # Get selection from dataframe click
-        if selection and selection.selection and selection.selection.rows:
-            idx = selection.selection.rows[0]
-            if idx < len(table_df):
-                selected_record = table_df.iloc[idx]
-                st.session_state["selected_market_id"] = selected_record["market_id"]
+        # Get selected market data
+        if "selected_raw_data" in st.session_state:
+            selected_data = st.session_state["selected_raw_data"]
+        elif not df.empty:
+            # Default to first market
+            selected_data = df.iloc[0]["raw_data"]
+            st.session_state["selected_market_id"] = df.iloc[0]["market_id"]
+            st.session_state["selected_raw_data"] = selected_data
 
-        # Fallback: use session state if available
-        if selected_record is None and "selected_market_id" in st.session_state:
-            market_id = st.session_state["selected_market_id"]
-            matches = table_df[table_df["market_id"] == market_id]
-            if not matches.empty:
-                selected_record = matches.iloc[0]
-
-        # Default to first row if nothing selected
-        if selected_record is None and not table_df.empty:
-            selected_record = table_df.iloc[0]
-
-        if selected_record is not None:
-            render_market_detail_view(selected_record["raw_data"])
+        if selected_data is not None:
+            render_market_detail_view(selected_data)
         else:
-            st.info("No markets found.")
+            st.info("Select a market to view analysis.")
 
 
 def main():
