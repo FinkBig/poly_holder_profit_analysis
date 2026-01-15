@@ -8,9 +8,8 @@ venv/
 env/
 .env
 
-# Data
-data/*.db
-*.db
+# Data (allow scanner.db for demo)
+!data/scanner.db
 
 # IDE
 .idea/
