@@ -347,8 +347,6 @@ def render_dashboard(repo):
     if not df.empty:
         if search_query:
             df = df[df["Market"].str.lower().str.contains(search_query.lower(), na=False)]
-        # Default sort by Score (highest first)
-        df = df.sort_values(by="Score", ascending=False).head(100)
 
     # 4. Layout: Side-by-Side (Table Left, Analysis Right)
     col_list, col_detail = st.columns([1.5, 1])
@@ -359,32 +357,86 @@ def render_dashboard(repo):
         if df.empty:
             st.info("No markets found.")
         else:
-            # Prepare table data
-            table_df = df.copy().reset_index(drop=True)
+            # Initialize sort state
+            if "sort_column" not in st.session_state:
+                st.session_state["sort_column"] = "Score"
+                st.session_state["sort_ascending"] = False
+
+            # Column headers with sort buttons
+            h1, h2, h3, h4 = st.columns([3, 1, 1, 1])
+
+            def sort_indicator(col_name):
+                if st.session_state["sort_column"] == col_name:
+                    return " ↓" if not st.session_state["sort_ascending"] else " ↑"
+                return ""
+
+            with h1:
+                if st.button(f"Market{sort_indicator('Market')}", key="sort_market", use_container_width=True):
+                    if st.session_state["sort_column"] == "Market":
+                        st.session_state["sort_ascending"] = not st.session_state["sort_ascending"]
+                    else:
+                        st.session_state["sort_column"] = "Market"
+                        st.session_state["sort_ascending"] = True
+                    st.rerun()
+            with h2:
+                if st.button(f"Imbal.{sort_indicator('Imbalance')}", key="sort_imbal", use_container_width=True):
+                    if st.session_state["sort_column"] == "Imbalance":
+                        st.session_state["sort_ascending"] = not st.session_state["sort_ascending"]
+                    else:
+                        st.session_state["sort_column"] = "Imbalance"
+                        st.session_state["sort_ascending"] = False
+                    st.rerun()
+            with h3:
+                if st.button(f"PNL Δ{sort_indicator('PNL Diff')}", key="sort_pnl", use_container_width=True):
+                    if st.session_state["sort_column"] == "PNL Diff":
+                        st.session_state["sort_ascending"] = not st.session_state["sort_ascending"]
+                    else:
+                        st.session_state["sort_column"] = "PNL Diff"
+                        st.session_state["sort_ascending"] = False
+                    st.rerun()
+            with h4:
+                if st.button(f"Exp.{sort_indicator('Expires')}", key="sort_exp", use_container_width=True):
+                    if st.session_state["sort_column"] == "Expires":
+                        st.session_state["sort_ascending"] = not st.session_state["sort_ascending"]
+                    else:
+                        st.session_state["sort_column"] = "Expires"
+                        st.session_state["sort_ascending"] = True
+                    st.rerun()
+
+            # Sort and prepare data
+            sort_col = st.session_state["sort_column"]
+            sort_asc = st.session_state["sort_ascending"]
+            table_df = df.sort_values(by=sort_col, ascending=sort_asc).head(100).reset_index(drop=True)
 
             # Create scrollable container with clickable market list
-            with st.container(height=700):
+            with st.container(height=650):
                 for idx, row in table_df.iterrows():
                     imbal = row["Imbalance"]
                     pnl_diff = row["PNL Diff"]
                     time_str = format_time_remaining(row["Expires"])
-                    market_name = row["Market"][:80] + "..." if len(row["Market"]) > 80 else row["Market"]
+                    market_name = row["Market"][:70] + "..." if len(row["Market"]) > 70 else row["Market"]
 
                     # Check if this market is selected
                     is_selected = st.session_state.get("selected_market_id") == row["market_id"]
 
-                    # Create clickable button for each market
-                    btn_label = f"**{market_name}**\n\n`Imbal: {imbal:.0f}%` · `PNL Δ: ${pnl_diff:,.0f}` · `Exp: {time_str}`"
-
-                    if st.button(
-                        btn_label,
-                        key=f"market_{idx}",
-                        use_container_width=True,
-                        type="primary" if is_selected else "secondary"
-                    ):
-                        st.session_state["selected_market_id"] = row["market_id"]
-                        st.session_state["selected_raw_data"] = row["raw_data"]
-                        st.rerun()
+                    # Market row with columns
+                    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+                    with c1:
+                        if st.button(
+                            market_name,
+                            key=f"market_{idx}",
+                            use_container_width=True,
+                            type="primary" if is_selected else "secondary"
+                        ):
+                            st.session_state["selected_market_id"] = row["market_id"]
+                            st.session_state["selected_raw_data"] = row["raw_data"]
+                            st.rerun()
+                    with c2:
+                        st.markdown(f"<div style='text-align:center;padding:8px;'>{imbal:.0f}%</div>", unsafe_allow_html=True)
+                    with c3:
+                        st.markdown(f"<div style='text-align:center;padding:8px;'>${pnl_diff:,.0f}</div>", unsafe_allow_html=True)
+                    with c4:
+                        st.markdown(f"<div style='text-align:center;padding:8px;'>{time_str}</div>", unsafe_allow_html=True)
 
     # 5. Analysis Panel (Right Side)
     with col_detail:
