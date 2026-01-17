@@ -149,12 +149,10 @@ def render_sidebar():
     st.sidebar.markdown("### 📡 SCANNER CONTROL")
     
     if st.sidebar.button("RUN NEW SCAN", use_container_width=True, type="primary"):
-        # We can't trigger the python script directly from button without subprocess/rerun complexity,
-        # but displaying the command is what we did before.
-        # Ideally this would trigger a background thread.
-        pass
-        
-    st.sidebar.caption("Run in terminal: `python scripts/run_scan.py`")
+        st.sidebar.info("⚠️ Scans must be run locally via terminal.")
+
+    st.sidebar.caption("📍 **Hosted app**: View-only (scans disabled)")
+    st.sidebar.code("python scripts/run_scan.py", language="bash")
     st.sidebar.markdown("---")
 
     # Stats
@@ -169,7 +167,24 @@ def render_sidebar():
         
         c3, c4 = st.sidebar.columns(2)
         c3.metric("Flagged", stats["total_flagged"])
-        
+
+        # Last scan time
+        sessions = repo.get_recent_sessions(limit=1)
+        if sessions:
+            latest = sessions[0]
+            completed_at = latest.get("completed_at")
+            if completed_at:
+                last_scan_time = datetime.fromtimestamp(completed_at)
+                time_ago = datetime.now() - last_scan_time
+                if time_ago.days > 0:
+                    time_str = f"{time_ago.days}d ago"
+                elif time_ago.seconds // 3600 > 0:
+                    time_str = f"{time_ago.seconds // 3600}h ago"
+                else:
+                    minutes = time_ago.seconds // 60
+                    time_str = f"{minutes}m ago" if minutes > 0 else "just now"
+                c4.metric("Last Scan", time_str)
+
         # Progress
         latest_session_id = repo.get_latest_session_id()
         if latest_session_id:
@@ -189,7 +204,7 @@ def render_sidebar():
         st.sidebar.error(f"DB Error: {e}")
 
 
-def render_market_detail_view(data):
+def render_market_detail_view(data, repo=None):
     """Render detailed interactive analysis for a selected market."""
     # Market Header
     st.markdown(f"<div class='terminal-header'>ANALYSIS :: {data.get('question')}</div>", unsafe_allow_html=True)
@@ -282,6 +297,58 @@ def render_market_detail_view(data):
         st.markdown(f"**Holders Analyzed:** `{data.get('no_top_n_count', 0)}`")
         st.markdown(f"**Profitable:** `{data.get('no_profitable_count', 0)}` ({no_prof_pct:.0%})")
         st.markdown(f"**Avg Realized PNL:** `${data.get('no_avg_overall_pnl', 0):,.0f}`")
+
+    # Historical Trend Chart
+    if repo:
+        market_id = data.get("market_id")
+        if market_id:
+            history = repo.get_market_history(market_id)
+            if len(history) >= 2:
+                # Sort by scanned_at ascending for chronological order
+                history = sorted(history, key=lambda x: x.get("scanned_at", 0))
+
+                timestamps = [datetime.fromtimestamp(h.get("scanned_at", 0)) for h in history]
+                yes_prof = [h.get("yes_profitable_pct", 0) for h in history]
+                no_prof = [h.get("no_profitable_pct", 0) for h in history]
+
+                fig_trend = go.Figure()
+                fig_trend.add_trace(go.Scatter(
+                    x=timestamps,
+                    y=yes_prof,
+                    mode='lines+markers',
+                    name='YES Profitable %',
+                    line=dict(color='#00C076', width=2),
+                    marker=dict(size=6)
+                ))
+                fig_trend.add_trace(go.Scatter(
+                    x=timestamps,
+                    y=no_prof,
+                    mode='lines+markers',
+                    name='NO Profitable %',
+                    line=dict(color='#FF4F4F', width=2),
+                    marker=dict(size=6)
+                ))
+                fig_trend.add_hline(
+                    y=IMBALANCE_THRESHOLD,
+                    line_dash="dot",
+                    line_color="orange",
+                    annotation_text=f"Threshold {IMBALANCE_THRESHOLD:.0%}",
+                )
+                fig_trend.update_layout(
+                    title="Profitability Trend Over Time",
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    height=250,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    yaxis_tickformat=".0%",
+                    xaxis_title="",
+                    yaxis_title="Profitable %",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig_trend, use_container_width=True)
+            else:
+                st.caption("📈 Trend data available after multiple scans")
 
 
 def render_dashboard(repo):
@@ -452,7 +519,7 @@ def render_dashboard(repo):
             st.session_state["selected_raw_data"] = selected_data
 
         if selected_data is not None:
-            render_market_detail_view(selected_data)
+            render_market_detail_view(selected_data, repo=repo)
         else:
             st.info("Select a market to view analysis.")
 
