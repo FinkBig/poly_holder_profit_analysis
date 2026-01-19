@@ -36,6 +36,22 @@ class ScannerRepository:
         finally:
             conn.close()
 
+    def update_session_progress(self, session_id: int, scanned: int, flagged: int) -> None:
+        """Update session progress."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """
+                UPDATE scan_sessions
+                SET scanned_count = ?, flagged_markets = ?
+                WHERE id = ?
+                """,
+                (scanned, flagged, session_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def complete_session(
         self, session_id: int, total: int, flagged: int, status: str = "completed"
     ) -> None:

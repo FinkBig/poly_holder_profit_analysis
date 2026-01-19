@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS scan_sessions (
     started_at INTEGER NOT NULL,
     completed_at INTEGER,
     total_markets INTEGER DEFAULT 0,
+    scanned_count INTEGER DEFAULT 0,
     flagged_markets INTEGER DEFAULT 0,
     status TEXT DEFAULT 'running'  -- running, completed, failed
 );

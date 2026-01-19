@@ -25,6 +25,8 @@ from src.config.settings import (
     IMBALANCE_THRESHOLD,
     MIN_LIQUIDITY,
     MIN_HOLDER_COUNT,
+    BATCH_SIZE,
+    BATCH_DELAY_SECONDS
 )
 
 logging.basicConfig(
@@ -77,9 +79,11 @@ async def run_scan(
             repo.complete_session(session_id, 0, 0)
             return
 
-        # Step 2: Build leaderboard cache
+        # Step 2: Build leaderboard cache & Process Markets
         logger.info("Step 2: Building leaderboard cache...")
-        async with LeaderboardFetcher() as lb_fetcher:
+        
+        async with LeaderboardFetcher() as lb_fetcher, HolderFetcher() as holder_fetcher:
+            # Build cache first
             await lb_fetcher.build_leaderboard_cache(
                 time_periods=["ALL", "MONTH"],
                 max_entries=leaderboard_size,
@@ -87,47 +91,70 @@ async def run_scan(
             cache_stats = lb_fetcher.get_cache_stats()
             logger.info(f"Leaderboard cache: {cache_stats}")
 
-            # Step 3: Fetch holders for all markets
-            logger.info("Step 3: Fetching holders for all markets...")
-            async with HolderFetcher() as holder_fetcher:
-                all_holders = await holder_fetcher.fetch_all_market_holders(markets)
-
-            # Step 4: Analyze each market
-            logger.info("Step 4: Analyzing imbalances...")
+            logger.info("Step 3: Processing markets (Streaming)...")
             calculator = ImbalanceCalculator(threshold=threshold)
 
-            for market in markets:
-                yes_holders, no_holders = all_holders.get(market.market_id, ([], []))
-
-                # Skip markets with insufficient holders
-                if (
-                    len(yes_holders) < MIN_HOLDER_COUNT
-                    or len(no_holders) < MIN_HOLDER_COUNT
-                ):
-                    logger.debug(
-                        f"Skipping {market.market_id}: insufficient holders "
-                        f"(YES={len(yes_holders)}, NO={len(no_holders)})"
+            # Process in batches
+            for i in range(0, total_markets_to_scan, BATCH_SIZE):
+                batch = markets[i : i + BATCH_SIZE]
+                
+                # Fetch holders for batch concurrently
+                tasks = [
+                    holder_fetcher.fetch_market_holders(
+                        m.condition_id, 
+                        m.token_id_yes, 
+                        m.token_id_no
                     )
-                    continue
+                    for m in batch
+                ]
+                
+                # Execute batch fetch
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Enrich with PNL from cache
-                await lb_fetcher.enrich_holders_with_pnl(yes_holders)
-                await lb_fetcher.enrich_holders_with_pnl(no_holders)
+                # Process results
+                for market, result in zip(batch, batch_results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing {market.market_id}: {result}")
+                        continue
+                        
+                    yes_holders, no_holders = result
 
-                # Calculate imbalance
-                result = calculator.create_scan_result(market, yes_holders, no_holders)
+                    # Skip markets with insufficient holders
+                    if (
+                        len(yes_holders) < MIN_HOLDER_COUNT
+                        or len(no_holders) < MIN_HOLDER_COUNT
+                    ):
+                        continue
 
-                # Store market and result
-                repo.upsert_market(market)
-                repo.insert_scan_result(session_id, result)
-                scanned_count += 1
+                    # Enrich with PNL
+                    await lb_fetcher.enrich_holders_with_pnl(yes_holders)
+                    await lb_fetcher.enrich_holders_with_pnl(no_holders)
 
-                if result.is_flagged:
-                    flagged_count += 1
-                    logger.info(
-                        f"FLAGGED: {market.question[:60]}... "
-                        f"({result.flagged_side} side: {result.profitable_skew_yes if result.flagged_side == 'YES' else result.profitable_skew_no:.1%} profitable)"
-                    )
+                    # Calculate imbalance
+                    scan_result = calculator.create_scan_result(market, yes_holders, no_holders)
+
+                    # Store
+                    repo.upsert_market(market)
+                    repo.insert_scan_result(session_id, scan_result)
+                    scanned_count += 1
+
+                    if scan_result.is_flagged:
+                        flagged_count += 1
+                        logger.info(
+                            f"FLAGGED: {market.question[:60]}... "
+                            f"({scan_result.flagged_side} side: {scan_result.profitable_skew_yes if scan_result.flagged_side == 'YES' else scan_result.profitable_skew_no:.1%} profitable)"
+                        )
+
+                # Update session progress every batch
+                repo.update_session_progress(session_id, scanned_count, flagged_count)
+                
+                # Log progress periodically
+                if (i + BATCH_SIZE) % 50 == 0:
+                     logger.info(f"Progress: {scanned_count}/{total_markets_to_scan} scanned ({flagged_count} flagged)")
+
+                # Rate limiting
+                if i + BATCH_SIZE < total_markets_to_scan:
+                    await asyncio.sleep(BATCH_DELAY_SECONDS)
 
         repo.complete_session(session_id, scanned_count, flagged_count)
         logger.info(
