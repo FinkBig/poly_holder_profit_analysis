@@ -396,8 +396,60 @@ def render_market_detail_view(data, repo=None):
 
 def render_dashboard(repo):
     """Main dashboard layout with split view."""
-    
-    # 1. Fetch Data
+
+    # 1. Global Search (searches ALL markets, not just filtered ones)
+    search_col1, search_col2 = st.columns([4, 1])
+    with search_col1:
+        global_search = st.text_input(
+            "🔍 Search ALL Markets",
+            placeholder="Search any market by name (e.g., 'Bitcoin', 'Trump', 'Tesla')...",
+            label_visibility="collapsed",
+            key="global_search"
+        )
+    with search_col2:
+        show_all = st.checkbox("Include filtered", value=False, help="Show markets outside price range (0.15-0.85) and expired")
+
+    # If searching, show search results instead of filtered list
+    if global_search and len(global_search) >= 2:
+        search_results = repo.search_markets(global_search, limit=100)
+        if search_results:
+            st.caption(f"Found {len(search_results)} markets matching '{global_search}'")
+
+            # Process search results
+            processed_data = []
+            for r in search_results:
+                yes_price = r.get("current_yes_price", 0)
+                no_price = r.get("current_no_price", 0)
+                hours_rem = calculate_hours_remaining(r.get("end_date"))
+
+                yes_prof_pct = r.get("yes_profitable_pct", 0)
+                no_prof_pct = r.get("no_profitable_pct", 0)
+                imbalance_pct = abs(yes_prof_pct - no_prof_pct) * 100
+                yes_avg_pnl = r.get("yes_avg_overall_pnl") or 0
+                no_avg_pnl = r.get("no_avg_overall_pnl") or 0
+                pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
+
+                processed_data.append({
+                    "Market": r.get("question", ""),
+                    "Score": 0,
+                    "Imbalance": imbalance_pct,
+                    "PNL Diff": pnl_diff,
+                    "Expires": hours_rem,
+                    "market_id": r.get("market_id"),
+                    "raw_data": r,
+                    "price_yes": yes_price,
+                    "price_no": no_price,
+                    "is_flagged": r.get("is_flagged", 0)
+                })
+
+            df = pd.DataFrame(processed_data)
+            _render_market_list_and_detail(df, repo, is_search=True)
+            return
+        else:
+            st.warning(f"No markets found matching '{global_search}'")
+            return
+
+    # 2. Fetch Data (normal filtered view)
     latest_session = repo.get_latest_session_id()
     if not latest_session:
         st.info("Waiting for data...")
@@ -408,20 +460,23 @@ def render_dashboard(repo):
         st.info("Scanning markets...")
         return
 
-    # 2. Process & Filter
+    # 3. Process & Filter
     processed_data = []
     for r in results:
         yes_price = r.get("current_yes_price", 0)
         no_price = r.get("current_no_price", 0)
-        
-        # Filter Price 0.15-0.85
-        if not ((0.15 <= yes_price <= 0.85) or (0.15 <= no_price <= 0.85)):
-            continue
 
-        # Filter Expired
-        hours_rem = calculate_hours_remaining(r.get("end_date"))
-        if hours_rem <= 0:
-            continue
+        # Filter Price 0.15-0.85 (unless show_all is checked)
+        if not show_all:
+            if not ((0.15 <= yes_price <= 0.85) or (0.15 <= no_price <= 0.85)):
+                continue
+
+            # Filter Expired
+            hours_rem = calculate_hours_remaining(r.get("end_date"))
+            if hours_rem <= 0:
+                continue
+        else:
+            hours_rem = calculate_hours_remaining(r.get("end_date"))
 
         # Calc Score
         yes_prof_pct = r.get("yes_profitable_pct", 0)
@@ -430,9 +485,9 @@ def render_dashboard(repo):
         yes_avg_pnl = r.get("yes_avg_overall_pnl") or 0
         no_avg_pnl = r.get("no_avg_overall_pnl") or 0
         pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
-        
+
         # Heuristic Score (imbalance_pct is already 0-100)
-        time_factor = 100 / (hours_rem + 1)
+        time_factor = 100 / (hours_rem + 1) if hours_rem > 0 else 0
         imbalance_factor = imbalance_pct  # Already in 0-100 scale
         pnl_factor = min(pnl_diff / 1000, 50)
         score = (time_factor * 2.0) + (imbalance_factor * 1.5) + (pnl_factor * 1.0)
@@ -450,15 +505,12 @@ def render_dashboard(repo):
         })
 
     df = pd.DataFrame(processed_data)
+    _render_market_list_and_detail(df, repo, is_search=False)
 
-    # 3. Search Bar
-    search_query = st.text_input("🔍 Search Markets", placeholder="Type to filter...", label_visibility="collapsed")
 
-    if not df.empty:
-        if search_query:
-            df = df[df["Market"].str.lower().str.contains(search_query.lower(), na=False)]
-
-    # 4. Layout: Side-by-Side (Table Left, Analysis Right)
+def _render_market_list_and_detail(df, repo, is_search=False):
+    """Render the market list and detail panels."""
+    # Layout: Side-by-Side (Table Left, Analysis Right)
     col_list, col_detail = st.columns([1.5, 1])
 
     with col_list:

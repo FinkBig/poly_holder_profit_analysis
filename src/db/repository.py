@@ -289,3 +289,25 @@ class ScannerRepository:
             return row[0] if row else None
         finally:
             conn.close()
+
+    def search_markets(self, query: str, limit: int = 50) -> List[Dict]:
+        """Search markets by question text. Returns latest scan result for each market."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT r.*, m.question, m.slug, m.end_date
+                FROM scan_results r
+                JOIN markets m ON r.market_id = m.market_id
+                WHERE m.question LIKE ?
+                AND r.id IN (
+                    SELECT MAX(id) FROM scan_results GROUP BY market_id
+                )
+                ORDER BY r.scanned_at DESC
+                LIMIT ?
+                """,
+                (f"%{query}%", limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
