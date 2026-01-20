@@ -330,19 +330,20 @@ def render_opportunities_tab(repo):
 
     with col_list:
         # Header row
-        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp = st.columns([0.3, 3, 0.8, 0.6, 0.6, 0.4, 0.6])
+        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp, h_copy = st.columns([0.3, 2.6, 0.7, 0.5, 0.5, 0.4, 0.5, 0.4])
         h_rank.markdown("**#**")
         h_market.markdown("**Market**")
         h_action.markdown("**Action**")
-        h_score.markdown("**Score**")
+        h_score.markdown("**Scr**")
         h_edge.markdown("**Edge**")
         h_n.markdown("**N**")
         h_exp.markdown("**Exp**")
+        h_copy.markdown("**📋**")
 
         # Data rows
         with st.container(height=550):
             for opp in opportunities:
-                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp = st.columns([0.3, 3, 0.8, 0.6, 0.6, 0.4, 0.6])
+                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp, c_copy = st.columns([0.3, 2.6, 0.7, 0.5, 0.5, 0.4, 0.5, 0.4])
 
                 # Check if this market is selected
                 is_selected = st.session_state.get("opp_selected_market_id") == opp["market_id"]
@@ -351,7 +352,7 @@ def render_opportunities_tab(repo):
                     st.markdown(f"**{opp['rank']}**")
 
                 with c_market:
-                    market_name = opp['question'][:50] + "..." if len(opp['question']) > 50 else opp['question']
+                    market_name = opp['question'][:45] + "..." if len(opp['question']) > 45 else opp['question']
                     if st.button(
                         market_name,
                         key=f"opp_market_{opp['rank']}",
@@ -376,6 +377,11 @@ def render_opportunities_tab(repo):
 
                 with c_exp:
                     st.markdown(format_time_remaining(opp['hours_remaining']))
+
+                with c_copy:
+                    # Tab-separated row for Excel pasting
+                    copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
+                    render_copy_button(copy_text, f"copy_{opp['rank']}")
 
     # Analysis Panel (Right Side)
     with col_detail:
