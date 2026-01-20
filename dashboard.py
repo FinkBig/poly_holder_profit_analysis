@@ -150,37 +150,44 @@ def calculate_opportunity_score(row):
     Enhanced opportunity score (0-100) that prioritizes edge + time urgency.
 
     Score Breakdown:
-    - Time urgency: 30 points max (exponential, rewards near-term)
-    - Edge strength: 40 points max (imbalance score)
-    - PNL conviction: 20 points max (dollar magnitude)
+    - Time urgency: 25 points max (exponential, rewards near-term)
+    - Edge strength: 30 points max (imbalance score)
+    - PNL conviction: 15 points max (dollar magnitude)
     - Data quality: 10 points max (low unknown = confident)
+    - Sample size: 20 points max (more holders = more confidence)
     """
     hours_rem = row.get("hours_remaining", 999)
 
-    # Time urgency (0-30 points) - exponential decay, 72h half-life
-    time_score = 30 * math.exp(-hours_rem / 72) if hours_rem < 999 else 0
+    # Time urgency (0-25 points) - exponential decay, 72h half-life
+    time_score = 25 * math.exp(-hours_rem / 72) if hours_rem < 999 else 0
 
-    # Edge strength (0-40 points) - from imbalance percentage
+    # Edge strength (0-30 points) - from imbalance percentage
     yes_prof_pct = row.get("yes_profitable_pct", 0)
     no_prof_pct = row.get("no_profitable_pct", 0)
     imbalance_pct = abs(yes_prof_pct - no_prof_pct)
-    edge_score = min(imbalance_pct * 100, 40)  # Max 40 points
+    edge_score = min(imbalance_pct * 100, 30)  # Max 30 points
 
-    # PNL conviction (0-20 points) - capped at $50k diff
+    # PNL conviction (0-15 points) - capped at $50k diff
     yes_avg_pnl = row.get("yes_avg_overall_pnl", 0) or 0
     no_avg_pnl = row.get("no_avg_overall_pnl", 0) or 0
     pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
-    pnl_score = min(pnl_diff / 2500, 20)
+    pnl_score = min(pnl_diff / 3333, 15)
 
     # Data quality bonus (0-10 points) - penalize high unknown %
     flagged_side = row.get("flagged_side")
     if flagged_side == "YES":
         unknown_pct = row.get("yes_unknown_pct", 1) or 0
+        holder_count = row.get("yes_top_n_count", 5) or 5
     else:
         unknown_pct = row.get("no_unknown_pct", 1) or 0
+        holder_count = row.get("no_top_n_count", 5) or 5
     quality_score = (1 - unknown_pct) * 10
 
-    return time_score + edge_score + pnl_score + quality_score
+    # Sample size bonus (0-20 points) - more holders = more confidence
+    # Min 5 holders (0 pts), max 50 holders (20 pts)
+    sample_score = min(max((holder_count - 5) / 45, 0), 1) * 20
+
+    return time_score + edge_score + pnl_score + quality_score + sample_score
 
 
 def get_trade_action(row):
@@ -266,6 +273,13 @@ def render_opportunities_tab(repo):
         slug = r.get("slug", "")
         url = f"https://polymarket.com/event/{slug}" if slug else ""
 
+        # Get holder count for the flagged side
+        flagged_side = r.get("flagged_side")
+        if flagged_side == "YES":
+            holder_count = r.get("yes_top_n_count", 0) or 0
+        else:
+            holder_count = r.get("no_top_n_count", 0) or 0
+
         opportunities.append({
             "rank": 0,
             "question": r.get("question", ""),
@@ -275,6 +289,7 @@ def render_opportunities_tab(repo):
             "edge": imbalance_pct,
             "pnl_diff": pnl_diff,
             "hours_remaining": hours_rem,
+            "holders": holder_count,
             "url": url,
             "market_id": r.get("market_id"),
             "raw_data": r
@@ -292,9 +307,9 @@ def render_opportunities_tab(repo):
         opp["rank"] = i + 1
 
     # CSV Export button
-    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tExpires\tURL\n"
+    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tHolders\tExpires\tURL\n"
     for opp in opportunities:
-        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
+        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
 
     col_download, col_info = st.columns([1, 3])
     with col_download:
@@ -312,20 +327,21 @@ def render_opportunities_tab(repo):
 
     # Render opportunities table
     # Header row
-    h_rank, h_market, h_action, h_score, h_edge, h_pnl, h_exp, h_copy = st.columns([0.5, 4, 1, 0.8, 0.8, 1, 0.8, 0.5])
+    h_rank, h_market, h_action, h_score, h_edge, h_pnl, h_n, h_exp, h_copy = st.columns([0.4, 3.5, 0.9, 0.7, 0.7, 0.9, 0.5, 0.7, 0.4])
     h_rank.markdown("**#**")
     h_market.markdown("**Market**")
     h_action.markdown("**Action**")
     h_score.markdown("**Score**")
     h_edge.markdown("**Edge**")
     h_pnl.markdown("**PNL Δ**")
-    h_exp.markdown("**Expires**")
-    h_copy.markdown("**Copy**")
+    h_n.markdown("**N**")
+    h_exp.markdown("**Exp**")
+    h_copy.markdown("**📋**")
 
     # Data rows
     with st.container(height=550):
         for opp in opportunities:
-            c_rank, c_market, c_action, c_score, c_edge, c_pnl, c_exp, c_copy = st.columns([0.5, 4, 1, 0.8, 0.8, 1, 0.8, 0.5])
+            c_rank, c_market, c_action, c_score, c_edge, c_pnl, c_n, c_exp, c_copy = st.columns([0.4, 3.5, 0.9, 0.7, 0.7, 0.9, 0.5, 0.7, 0.4])
 
             with c_rank:
                 st.markdown(f"**{opp['rank']}**")
@@ -349,12 +365,15 @@ def render_opportunities_tab(repo):
             with c_pnl:
                 st.markdown(f"${opp['pnl_diff']:,.0f}")
 
+            with c_n:
+                st.markdown(f"{opp['holders']}")
+
             with c_exp:
                 st.markdown(format_time_remaining(opp['hours_remaining']))
 
             with c_copy:
                 # Tab-separated row for Excel pasting
-                copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
+                copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
                 render_copy_button(copy_text, f"copy_{opp['rank']}")
 
 def render_sidebar():
