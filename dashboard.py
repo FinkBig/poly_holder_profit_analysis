@@ -325,56 +325,75 @@ def render_opportunities_tab(repo):
 
     st.markdown("---")
 
-    # Render opportunities table
-    # Header row
-    h_rank, h_market, h_action, h_score, h_edge, h_pnl, h_n, h_exp, h_copy = st.columns([0.4, 3.5, 0.9, 0.7, 0.7, 0.9, 0.5, 0.7, 0.4])
-    h_rank.markdown("**#**")
-    h_market.markdown("**Market**")
-    h_action.markdown("**Action**")
-    h_score.markdown("**Score**")
-    h_edge.markdown("**Edge**")
-    h_pnl.markdown("**PNL Δ**")
-    h_n.markdown("**N**")
-    h_exp.markdown("**Exp**")
-    h_copy.markdown("**📋**")
+    # Split view: List on left, Analysis on right
+    col_list, col_detail = st.columns([1.5, 1])
 
-    # Data rows
-    with st.container(height=550):
-        for opp in opportunities:
-            c_rank, c_market, c_action, c_score, c_edge, c_pnl, c_n, c_exp, c_copy = st.columns([0.4, 3.5, 0.9, 0.7, 0.7, 0.9, 0.5, 0.7, 0.4])
+    with col_list:
+        # Header row
+        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp = st.columns([0.3, 3, 0.8, 0.6, 0.6, 0.4, 0.6])
+        h_rank.markdown("**#**")
+        h_market.markdown("**Market**")
+        h_action.markdown("**Action**")
+        h_score.markdown("**Score**")
+        h_edge.markdown("**Edge**")
+        h_n.markdown("**N**")
+        h_exp.markdown("**Exp**")
 
-            with c_rank:
-                st.markdown(f"**{opp['rank']}**")
+        # Data rows
+        with st.container(height=550):
+            for opp in opportunities:
+                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp = st.columns([0.3, 3, 0.8, 0.6, 0.6, 0.4, 0.6])
 
-            with c_market:
-                market_name = opp['question'][:65] + "..." if len(opp['question']) > 65 else opp['question']
-                if opp['url']:
-                    st.markdown(f"[{market_name}]({opp['url']})")
-                else:
-                    st.markdown(market_name)
+                # Check if this market is selected
+                is_selected = st.session_state.get("opp_selected_market_id") == opp["market_id"]
 
-            with c_action:
-                st.markdown(f"<span style='color:{opp['action_color']};font-weight:bold;'>{opp['action']}</span>", unsafe_allow_html=True)
+                with c_rank:
+                    st.markdown(f"**{opp['rank']}**")
 
-            with c_score:
-                st.markdown(f"{opp['score']:.0f}")
+                with c_market:
+                    market_name = opp['question'][:50] + "..." if len(opp['question']) > 50 else opp['question']
+                    if st.button(
+                        market_name,
+                        key=f"opp_market_{opp['rank']}",
+                        use_container_width=True,
+                        type="primary" if is_selected else "secondary"
+                    ):
+                        st.session_state["opp_selected_market_id"] = opp["market_id"]
+                        st.session_state["opp_selected_raw_data"] = opp["raw_data"]
+                        st.rerun()
 
-            with c_edge:
-                st.markdown(f"{opp['edge']:.0f}%")
+                with c_action:
+                    st.markdown(f"<span style='color:{opp['action_color']};font-weight:bold;'>{opp['action']}</span>", unsafe_allow_html=True)
 
-            with c_pnl:
-                st.markdown(f"${opp['pnl_diff']:,.0f}")
+                with c_score:
+                    st.markdown(f"{opp['score']:.0f}")
 
-            with c_n:
-                st.markdown(f"{opp['holders']}")
+                with c_edge:
+                    st.markdown(f"{opp['edge']:.0f}%")
 
-            with c_exp:
-                st.markdown(format_time_remaining(opp['hours_remaining']))
+                with c_n:
+                    st.markdown(f"{opp['holders']}")
 
-            with c_copy:
-                # Tab-separated row for Excel pasting
-                copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
-                render_copy_button(copy_text, f"copy_{opp['rank']}")
+                with c_exp:
+                    st.markdown(format_time_remaining(opp['hours_remaining']))
+
+    # Analysis Panel (Right Side)
+    with col_detail:
+        selected_data = None
+
+        # Get selected market data
+        if "opp_selected_raw_data" in st.session_state:
+            selected_data = st.session_state["opp_selected_raw_data"]
+        elif opportunities:
+            # Default to first opportunity
+            selected_data = opportunities[0]["raw_data"]
+            st.session_state["opp_selected_market_id"] = opportunities[0]["market_id"]
+            st.session_state["opp_selected_raw_data"] = selected_data
+
+        if selected_data:
+            render_market_detail_view(selected_data, repo=repo)
+        else:
+            st.info("Select a market to view analysis.")
 
 def render_sidebar():
     """Render sidebar with controls and stats."""
