@@ -144,15 +144,237 @@ def format_time_remaining(hours):
         return f"{days}d {rem_hours}h"
     return f"{rem_hours}h"
 
+
+def calculate_opportunity_score(row):
+    """
+    Enhanced opportunity score (0-100) that prioritizes edge + time urgency.
+
+    Score Breakdown:
+    - Time urgency: 30 points max (exponential, rewards near-term)
+    - Edge strength: 40 points max (imbalance score)
+    - PNL conviction: 20 points max (dollar magnitude)
+    - Data quality: 10 points max (low unknown = confident)
+    """
+    hours_rem = row.get("hours_remaining", 999)
+
+    # Time urgency (0-30 points) - exponential decay, 72h half-life
+    time_score = 30 * math.exp(-hours_rem / 72) if hours_rem < 999 else 0
+
+    # Edge strength (0-40 points) - from imbalance percentage
+    yes_prof_pct = row.get("yes_profitable_pct", 0)
+    no_prof_pct = row.get("no_profitable_pct", 0)
+    imbalance_pct = abs(yes_prof_pct - no_prof_pct)
+    edge_score = min(imbalance_pct * 100, 40)  # Max 40 points
+
+    # PNL conviction (0-20 points) - capped at $50k diff
+    yes_avg_pnl = row.get("yes_avg_overall_pnl", 0) or 0
+    no_avg_pnl = row.get("no_avg_overall_pnl", 0) or 0
+    pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
+    pnl_score = min(pnl_diff / 2500, 20)
+
+    # Data quality bonus (0-10 points) - penalize high unknown %
+    flagged_side = row.get("flagged_side")
+    if flagged_side == "YES":
+        unknown_pct = row.get("yes_unknown_pct", 1) or 0
+    else:
+        unknown_pct = row.get("no_unknown_pct", 1) or 0
+    quality_score = (1 - unknown_pct) * 10
+
+    return time_score + edge_score + pnl_score + quality_score
+
+
+def get_trade_action(row):
+    """Determine trade recommendation based on flagged side."""
+    flagged_side = row.get("flagged_side", "")
+    if flagged_side == "YES":
+        return "BUY YES", "#00C076"  # Green
+    elif flagged_side == "NO":
+        return "BUY NO", "#FF4F4F"  # Red
+    return "—", "#666666"
+
+
+def render_copy_button(text, key):
+    """Render a copy-to-clipboard button using JavaScript."""
+    escaped = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$").replace('"', '\\"')
+    html = f'''
+    <button onclick="navigator.clipboard.writeText(`{escaped}`).then(() => {{
+        this.innerHTML = '✓';
+        setTimeout(() => this.innerHTML = '📋', 1500);
+    }})" style="
+        background: #262730;
+        border: 1px solid #363945;
+        border-radius: 4px;
+        padding: 4px 8px;
+        cursor: pointer;
+        color: #9CA3AF;
+        font-size: 14px;
+    ">📋</button>
+    '''
+    st.components.v1.html(html, height=35)
+
+
+def render_opportunities_tab(repo):
+    """Render the Top 20 Opportunities view with actionable trading info."""
+    st.markdown("<div class='terminal-header'>TOP TRADING OPPORTUNITIES</div>", unsafe_allow_html=True)
+
+    # Get filter values from session state
+    max_days = st.session_state.get("filter_max_days", 14)
+    min_edge = st.session_state.get("filter_min_edge", 60)
+    min_liquidity = st.session_state.get("filter_min_liquidity", 1000)
+
+    # Fetch latest session data
+    latest_session = repo.get_latest_session_id()
+    if not latest_session:
+        st.info("No scan data available. Run a scan first.")
+        return
+
+    results = repo.get_flagged_results(session_id=latest_session, limit=500)
+    if not results:
+        st.info("No flagged opportunities found in latest scan.")
+        return
+
+    # Process and score opportunities
+    opportunities = []
+    for r in results:
+        hours_rem = calculate_hours_remaining(r.get("end_date"))
+
+        # Apply filters
+        if hours_rem > max_days * 24:
+            continue
+        if hours_rem <= 0:
+            continue
+
+        yes_prof_pct = r.get("yes_profitable_pct", 0)
+        no_prof_pct = r.get("no_profitable_pct", 0)
+        imbalance_pct = abs(yes_prof_pct - no_prof_pct) * 100
+        if imbalance_pct < min_edge:
+            continue
+
+        liquidity = r.get("liquidity", 0)
+        if liquidity < min_liquidity:
+            continue
+
+        # Calculate opportunity score
+        r["hours_remaining"] = hours_rem
+        score = calculate_opportunity_score(r)
+
+        yes_avg_pnl = r.get("yes_avg_overall_pnl", 0) or 0
+        no_avg_pnl = r.get("no_avg_overall_pnl", 0) or 0
+        pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
+
+        action, color = get_trade_action(r)
+        slug = r.get("slug", "")
+        url = f"https://polymarket.com/event/{slug}" if slug else ""
+
+        opportunities.append({
+            "rank": 0,
+            "question": r.get("question", ""),
+            "action": action,
+            "action_color": color,
+            "score": score,
+            "edge": imbalance_pct,
+            "pnl_diff": pnl_diff,
+            "hours_remaining": hours_rem,
+            "url": url,
+            "market_id": r.get("market_id"),
+            "raw_data": r
+        })
+
+    # Sort by score and take top 20
+    opportunities = sorted(opportunities, key=lambda x: x["score"], reverse=True)[:20]
+
+    if not opportunities:
+        st.warning(f"No opportunities match current filters (Edge ≥{min_edge}%, Expires ≤{max_days}d, Liquidity ≥${min_liquidity:,})")
+        return
+
+    # Assign ranks
+    for i, opp in enumerate(opportunities):
+        opp["rank"] = i + 1
+
+    # CSV Export button
+    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tExpires\tURL\n"
+    for opp in opportunities:
+        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
+
+    col_download, col_info = st.columns([1, 3])
+    with col_download:
+        st.download_button(
+            "📥 Download CSV",
+            csv_data,
+            "top_opportunities.csv",
+            "text/csv",
+            use_container_width=True
+        )
+    with col_info:
+        st.caption(f"Showing top {len(opportunities)} opportunities • Edge ≥{min_edge}% • Expires ≤{max_days}d")
+
+    st.markdown("---")
+
+    # Render opportunities table
+    # Header row
+    h_rank, h_market, h_action, h_score, h_edge, h_pnl, h_exp, h_copy = st.columns([0.5, 4, 1, 0.8, 0.8, 1, 0.8, 0.5])
+    h_rank.markdown("**#**")
+    h_market.markdown("**Market**")
+    h_action.markdown("**Action**")
+    h_score.markdown("**Score**")
+    h_edge.markdown("**Edge**")
+    h_pnl.markdown("**PNL Δ**")
+    h_exp.markdown("**Expires**")
+    h_copy.markdown("**Copy**")
+
+    # Data rows
+    with st.container(height=550):
+        for opp in opportunities:
+            c_rank, c_market, c_action, c_score, c_edge, c_pnl, c_exp, c_copy = st.columns([0.5, 4, 1, 0.8, 0.8, 1, 0.8, 0.5])
+
+            with c_rank:
+                st.markdown(f"**{opp['rank']}**")
+
+            with c_market:
+                market_name = opp['question'][:65] + "..." if len(opp['question']) > 65 else opp['question']
+                if opp['url']:
+                    st.markdown(f"[{market_name}]({opp['url']})")
+                else:
+                    st.markdown(market_name)
+
+            with c_action:
+                st.markdown(f"<span style='color:{opp['action_color']};font-weight:bold;'>{opp['action']}</span>", unsafe_allow_html=True)
+
+            with c_score:
+                st.markdown(f"{opp['score']:.0f}")
+
+            with c_edge:
+                st.markdown(f"{opp['edge']:.0f}%")
+
+            with c_pnl:
+                st.markdown(f"${opp['pnl_diff']:,.0f}")
+
+            with c_exp:
+                st.markdown(format_time_remaining(opp['hours_remaining']))
+
+            with c_copy:
+                # Tab-separated row for Excel pasting
+                copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
+                render_copy_button(copy_text, f"copy_{opp['rank']}")
+
 def render_sidebar():
     """Render sidebar with controls and stats."""
     st.sidebar.markdown("### 📡 SCANNER CONTROL")
-    
+
     if st.sidebar.button("RUN NEW SCAN", use_container_width=True, type="primary"):
         st.sidebar.info("⚠️ Scans must be run locally via terminal.")
 
     st.sidebar.caption("📍 **Hosted app**: View-only (scans disabled)")
     st.sidebar.code("python scripts/run_scan.py", language="bash")
+    st.sidebar.markdown("---")
+
+    # Filter Controls
+    with st.sidebar.expander("🎯 FILTERS", expanded=False):
+        max_days = st.slider("Max days to expiry", 1, 90, 14, key="filter_max_days")
+        min_edge = st.slider("Min edge %", 50, 90, 60, key="filter_min_edge")
+        min_liquidity = st.number_input("Min liquidity ($)", 100, 100000, 1000, step=500, key="filter_min_liquidity")
+        st.caption("Filters apply to Top Opportunities tab")
+
     st.sidebar.markdown("---")
 
     # Stats
@@ -627,7 +849,15 @@ def main():
         return
 
     render_sidebar()
-    render_dashboard(repo)
+
+    # Tab navigation
+    tab_opportunities, tab_all = st.tabs(["🎯 Top Opportunities", "📊 All Markets"])
+
+    with tab_opportunities:
+        render_opportunities_tab(repo)
+
+    with tab_all:
+        render_dashboard(repo)
 
 if __name__ == "__main__":
     main()

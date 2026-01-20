@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 class ActiveMarketFetcher:
     """Fetches all active markets from Polymarket Gamma API."""
 
-    def __init__(self):
+    def __init__(self, max_days_to_expiry: Optional[int] = None):
         self.session: Optional[aiohttp.ClientSession] = None
+        self.max_days_to_expiry = max_days_to_expiry
 
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
@@ -103,7 +104,13 @@ class ActiveMarketFetcher:
             # Filter expired markets
             if end_date and end_date < datetime.now(end_date.tzinfo):
                 return None
-            
+
+            # Filter for near-term markets only (if max_days_to_expiry is set)
+            if end_date and hasattr(self, 'max_days_to_expiry') and self.max_days_to_expiry:
+                time_to_expiry = end_date - datetime.now(end_date.tzinfo)
+                if time_to_expiry.total_seconds() > self.max_days_to_expiry * 24 * 3600:
+                    return None  # Skip far-out markets
+
             # Determine slug (prefer event slug if available)
             slug = raw.get("slug", "")
             events = raw.get("events", [])

@@ -26,7 +26,8 @@ from src.config.settings import (
     MIN_LIQUIDITY,
     MIN_HOLDER_COUNT,
     BATCH_SIZE,
-    BATCH_DELAY_SECONDS
+    BATCH_DELAY_SECONDS,
+    MAX_DAYS_TO_EXPIRY
 )
 
 logging.basicConfig(
@@ -41,6 +42,7 @@ async def run_scan(
     threshold: float = IMBALANCE_THRESHOLD,
     min_liquidity: float = MIN_LIQUIDITY,
     leaderboard_size: int = 2000,
+    max_days: int = MAX_DAYS_TO_EXPIRY,
 ):
     """Execute a full scan."""
     project_root = Path(__file__).parent.parent
@@ -55,8 +57,8 @@ async def run_scan(
 
     try:
         # Step 1: Fetch all active markets
-        logger.info("Step 1: Fetching active markets...")
-        async with ActiveMarketFetcher() as market_fetcher:
+        logger.info(f"Step 1: Fetching active markets (max {max_days} days to expiry)...")
+        async with ActiveMarketFetcher(max_days_to_expiry=max_days) as market_fetcher:
             markets = await market_fetcher.fetch_all_active_markets(
                 max_markets=max_markets
             )
@@ -206,6 +208,12 @@ def main():
         default=2000,
         help="Number of top traders to cache from leaderboard (default: 2000)",
     )
+    parser.add_argument(
+        "--max-days",
+        type=int,
+        default=MAX_DAYS_TO_EXPIRY,
+        help=f"Maximum days until expiration (default: {MAX_DAYS_TO_EXPIRY}, 0=no limit)",
+    )
 
     args = parser.parse_args()
     asyncio.run(
@@ -214,6 +222,7 @@ def main():
             args.threshold,
             args.min_liquidity,
             args.leaderboard_size,
+            args.max_days if args.max_days > 0 else None,
         )
     )
 
