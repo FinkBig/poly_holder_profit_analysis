@@ -147,47 +147,46 @@ def format_time_remaining(hours):
 
 def calculate_opportunity_score(row):
     """
-    Enhanced opportunity score (0-100) that prioritizes edge + time urgency.
+    Opportunity score based on probability of winning.
 
     Score Breakdown:
-    - Time urgency: 25 points max (exponential, rewards near-term)
-    - Edge strength: 30 points max (imbalance score)
-    - PNL conviction: 15 points max (dollar magnitude)
-    - Data quality: 10 points max (low unknown = confident)
-    - Sample size: 20 points max (more holders = more confidence)
+    - Edge strength: ~50 pts (uncapped, primary signal)
+    - Sample size: 30 pts max (min of both sides, more data = confidence)
+    - PNL conviction: 10 pts max (experienced traders backing one side)
+    - Data quality: 10 pts max (low unknown = confident)
+
+    Note: Time/liquidity/volume are filtering preferences, not win probability factors.
     """
-    hours_rem = row.get("hours_remaining", 999)
-
-    # Time urgency (0-25 points) - exponential decay, 72h half-life
-    time_score = 25 * math.exp(-hours_rem / 72) if hours_rem < 999 else 0
-
-    # Edge strength (0-30 points) - from imbalance percentage
+    # Edge strength (uncapped) - THE primary signal
+    # 20% edge = 20 pts, 40% edge = 40 pts, etc.
     yes_prof_pct = row.get("yes_profitable_pct", 0)
     no_prof_pct = row.get("no_profitable_pct", 0)
     imbalance_pct = abs(yes_prof_pct - no_prof_pct)
-    edge_score = min(imbalance_pct * 100, 30)  # Max 30 points
+    edge_score = imbalance_pct * 100  # Direct scaling, uncapped
 
-    # PNL conviction (0-15 points) - capped at $50k diff
+    # Sample size (0-30 points) - use MIN of both sides for confidence
+    # Need data on both sides to trust the signal
+    yes_holders = row.get("yes_top_n_count", 5) or 5
+    no_holders = row.get("no_top_n_count", 5) or 5
+    min_holders = min(yes_holders, no_holders)
+    # Scale: 5 holders = 0 pts, 50 holders = 30 pts
+    sample_score = min(max((min_holders - 5) / 45, 0), 1) * 30
+
+    # PNL conviction (0-10 points) - experienced traders' track record
     yes_avg_pnl = row.get("yes_avg_overall_pnl", 0) or 0
     no_avg_pnl = row.get("no_avg_overall_pnl", 0) or 0
     pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
-    pnl_score = min(pnl_diff / 3333, 15)
+    pnl_score = min(pnl_diff / 5000, 10)  # $50k diff = 10 pts
 
-    # Data quality bonus (0-10 points) - penalize high unknown %
+    # Data quality (0-10 points) - penalize high unknown %
     flagged_side = row.get("flagged_side")
     if flagged_side == "YES":
         unknown_pct = row.get("yes_unknown_pct", 1) or 0
-        holder_count = row.get("yes_top_n_count", 5) or 5
     else:
         unknown_pct = row.get("no_unknown_pct", 1) or 0
-        holder_count = row.get("no_top_n_count", 5) or 5
     quality_score = (1 - unknown_pct) * 10
 
-    # Sample size bonus (0-20 points) - more holders = more confidence
-    # Min 5 holders (0 pts), max 50 holders (20 pts)
-    sample_score = min(max((holder_count - 5) / 45, 0), 1) * 20
-
-    return time_score + edge_score + pnl_score + quality_score + sample_score
+    return edge_score + sample_score + pnl_score + quality_score
 
 
 def get_trade_action(row):
