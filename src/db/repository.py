@@ -421,6 +421,18 @@ class ScannerRepository:
         finally:
             conn.close()
 
+    def update_trade_entry_price(self, trade_id: int, entry_price: float) -> None:
+        """Update the entry price for a trade."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE trades SET entry_price = ? WHERE id = ?",
+                (entry_price, trade_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_portfolio_stats(self) -> Dict:
         """Return portfolio statistics."""
         conn = self._get_conn()

@@ -472,17 +472,17 @@ def render_portfolio_tab(repo):
 
     if open_trades:
         # Header row
-        h_market, h_side, h_entry, h_current, h_change, h_edge, h_actions = st.columns([2.5, 0.5, 0.6, 0.6, 0.6, 0.5, 1.2])
+        h_market, h_side, h_entry, h_current, h_change, h_edge, h_actions = st.columns([2.5, 0.5, 0.7, 0.6, 0.6, 0.5, 1.2])
         h_market.markdown("**Market**")
         h_side.markdown("**Side**")
-        h_entry.markdown("**Entry**")
+        h_entry.markdown("**Entry $**")
         h_current.markdown("**Now**")
         h_change.markdown("**Chg**")
         h_edge.markdown("**Edge**")
         h_actions.markdown("**Actions**")
 
         for trade in open_trades:
-            c_market, c_side, c_entry, c_current, c_change, c_edge, c_actions = st.columns([2.5, 0.5, 0.6, 0.6, 0.6, 0.5, 1.2])
+            c_market, c_side, c_entry, c_current, c_change, c_edge, c_actions = st.columns([2.5, 0.5, 0.7, 0.6, 0.6, 0.5, 1.2])
 
             # Market name
             market_name = trade["question"][:40] + "..." if len(trade["question"]) > 40 else trade["question"]
@@ -492,8 +492,22 @@ def render_portfolio_tab(repo):
             side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
             c_side.markdown(f"<span style='color:{side_color};font-weight:bold;'>{trade['side']}</span>", unsafe_allow_html=True)
 
-            # Entry price
-            c_entry.markdown(f"${trade['entry_price']:.2f}")
+            # Entry price - editable
+            with c_entry:
+                new_entry = st.number_input(
+                    "Entry",
+                    min_value=0.01,
+                    max_value=0.99,
+                    value=float(trade['entry_price']),
+                    step=0.01,
+                    format="%.2f",
+                    key=f"entry_{trade['id']}",
+                    label_visibility="collapsed"
+                )
+                # Update if changed
+                if abs(new_entry - trade['entry_price']) > 0.001:
+                    repo.update_trade_entry_price(trade['id'], new_entry)
+                    st.rerun()
 
             # Current price (from cache if available)
             current_price = None
@@ -504,9 +518,10 @@ def render_portfolio_tab(repo):
             if current_price is not None:
                 c_current.markdown(f"${current_price:.2f}")
 
-                # Price change
-                change = current_price - trade["entry_price"]
-                change_pct = (change / trade["entry_price"] * 100) if trade["entry_price"] > 0 else 0
+                # Price change (use potentially updated entry price)
+                entry_for_calc = new_entry if 'new_entry' in dir() else trade['entry_price']
+                change = current_price - entry_for_calc
+                change_pct = (change / entry_for_calc * 100) if entry_for_calc > 0 else 0
                 change_color = "#00C076" if change >= 0 else "#FF4F4F"
                 c_change.markdown(f"<span style='color:{change_color};'>{change_pct:+.1f}%</span>", unsafe_allow_html=True)
             else:
