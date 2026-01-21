@@ -8,11 +8,13 @@ from datetime import datetime
 import sys
 from pathlib import Path
 import math
+import asyncio
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.db.repository import ScannerRepository
 from src.config.settings import DEFAULT_DB_PATH, IMBALANCE_THRESHOLD
+from src.fetchers.price_fetcher import fetch_prices_for_trades
 
 # Page Config
 st.set_page_config(
@@ -420,6 +422,214 @@ def render_opportunities_tab(repo):
         else:
             st.info("Select a market to view analysis.")
 
+def render_portfolio_tab(repo):
+    """Render the Portfolio tab with trade tracking and analytics."""
+    st.markdown("<div class='terminal-header'>PORTFOLIO TRACKER</div>", unsafe_allow_html=True)
+
+    # Portfolio Stats Row
+    stats = repo.get_portfolio_stats()
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Open Trades", stats["open"])
+    col2.metric("Total Trades", stats["total"])
+    col3.metric("Win Rate", f"{stats['win_rate']:.1%}" if stats["wins"] + stats["losses"] > 0 else "N/A")
+    col4.metric("W/L", f"{stats['wins']}/{stats['losses']}")
+    col5.metric("Total PNL", f"${stats['total_pnl']:.2f}")
+
+    st.markdown("---")
+
+    # Action Buttons Row
+    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
+
+    with btn_col1:
+        if st.button("🔄 Refresh Prices", use_container_width=True):
+            open_trades = repo.get_open_trades()
+            if open_trades:
+                condition_ids = [t["condition_id"] for t in open_trades]
+                with st.spinner("Fetching latest prices..."):
+                    try:
+                        prices = asyncio.run(fetch_prices_for_trades(condition_ids))
+                        st.session_state["portfolio_prices"] = prices
+                        st.success(f"Updated prices for {len(prices)} markets")
+                    except Exception as e:
+                        st.error(f"Failed to fetch prices: {e}")
+            else:
+                st.info("No open trades to refresh")
+
+    # Get all trades
+    all_trades = repo.get_all_trades(limit=100)
+
+    if not all_trades:
+        st.info("No trades in portfolio. Add trades from the Top Opportunities tab.")
+        return
+
+    # Get cached prices if available
+    cached_prices = st.session_state.get("portfolio_prices", {})
+
+    st.markdown("### Open Trades")
+
+    # Filter open trades
+    open_trades = [t for t in all_trades if t["outcome"] == "pending"]
+
+    if open_trades:
+        # Header row
+        h_market, h_side, h_entry, h_current, h_change, h_edge, h_actions = st.columns([2.5, 0.5, 0.6, 0.6, 0.6, 0.5, 1.2])
+        h_market.markdown("**Market**")
+        h_side.markdown("**Side**")
+        h_entry.markdown("**Entry**")
+        h_current.markdown("**Now**")
+        h_change.markdown("**Chg**")
+        h_edge.markdown("**Edge**")
+        h_actions.markdown("**Actions**")
+
+        for trade in open_trades:
+            c_market, c_side, c_entry, c_current, c_change, c_edge, c_actions = st.columns([2.5, 0.5, 0.6, 0.6, 0.6, 0.5, 1.2])
+
+            # Market name
+            market_name = trade["question"][:40] + "..." if len(trade["question"]) > 40 else trade["question"]
+            c_market.markdown(market_name)
+
+            # Side with color
+            side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
+            c_side.markdown(f"<span style='color:{side_color};font-weight:bold;'>{trade['side']}</span>", unsafe_allow_html=True)
+
+            # Entry price
+            c_entry.markdown(f"${trade['entry_price']:.2f}")
+
+            # Current price (from cache if available)
+            current_price = None
+            if trade["condition_id"] in cached_prices:
+                yes_price, no_price = cached_prices[trade["condition_id"]]
+                current_price = yes_price if trade["side"] == "YES" else no_price
+
+            if current_price is not None:
+                c_current.markdown(f"${current_price:.2f}")
+
+                # Price change
+                change = current_price - trade["entry_price"]
+                change_pct = (change / trade["entry_price"] * 100) if trade["entry_price"] > 0 else 0
+                change_color = "#00C076" if change >= 0 else "#FF4F4F"
+                c_change.markdown(f"<span style='color:{change_color};'>{change_pct:+.1f}%</span>", unsafe_allow_html=True)
+            else:
+                c_current.markdown("—")
+                c_change.markdown("—")
+
+            # Edge at entry
+            edge = trade.get("edge_pct")
+            c_edge.markdown(f"{edge:.0f}%" if edge else "—")
+
+            # Action buttons
+            with c_actions:
+                btn_col_win, btn_col_loss, btn_col_del = st.columns(3)
+                with btn_col_win:
+                    if st.button("✓", key=f"win_{trade['id']}", help="Mark as Win"):
+                        exit_price = 1.0 if trade["side"] == "YES" else 0.0
+                        repo.update_trade_outcome(trade["id"], "win", exit_price)
+                        st.rerun()
+                with btn_col_loss:
+                    if st.button("✗", key=f"loss_{trade['id']}", help="Mark as Loss"):
+                        exit_price = 0.0 if trade["side"] == "YES" else 1.0
+                        repo.update_trade_outcome(trade["id"], "loss", exit_price)
+                        st.rerun()
+                with btn_col_del:
+                    if st.button("🗑", key=f"del_{trade['id']}", help="Remove"):
+                        repo.delete_trade(trade["id"])
+                        st.rerun()
+
+    else:
+        st.info("No open trades")
+
+    # Closed Trades Section
+    st.markdown("### Closed Trades")
+    closed_trades = [t for t in all_trades if t["outcome"] in ("win", "loss")]
+
+    if closed_trades:
+        for trade in closed_trades[:20]:  # Show last 20 closed
+            c_market, c_side, c_entry, c_exit, c_result, c_edge = st.columns([3, 0.5, 0.6, 0.6, 0.6, 0.5])
+
+            market_name = trade["question"][:45] + "..." if len(trade["question"]) > 45 else trade["question"]
+            c_market.markdown(market_name)
+
+            side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
+            c_side.markdown(f"<span style='color:{side_color};'>{trade['side']}</span>", unsafe_allow_html=True)
+
+            c_entry.markdown(f"${trade['entry_price']:.2f}")
+
+            exit_price = trade.get("exit_price")
+            c_exit.markdown(f"${exit_price:.2f}" if exit_price is not None else "—")
+
+            result_color = "#00C076" if trade["outcome"] == "win" else "#FF4F4F"
+            result_text = "WIN" if trade["outcome"] == "win" else "LOSS"
+            c_result.markdown(f"<span style='color:{result_color};font-weight:bold;'>{result_text}</span>", unsafe_allow_html=True)
+
+            edge = trade.get("edge_pct")
+            c_edge.markdown(f"{edge:.0f}%" if edge else "—")
+    else:
+        st.info("No closed trades yet")
+
+    # Win Rate Analytics Section
+    st.markdown("---")
+    with st.expander("📊 Win Rate Analytics", expanded=True):
+        if stats["wins"] + stats["losses"] == 0:
+            st.info("Complete some trades to see analytics")
+        else:
+            # Summary metrics
+            an_col1, an_col2, an_col3, an_col4 = st.columns(4)
+            an_col1.metric("Total Closed", stats["wins"] + stats["losses"])
+            an_col2.metric("Win Rate", f"{stats['win_rate']:.1%}")
+            an_col3.metric("Avg Edge at Entry", f"{stats['avg_edge']:.1f}%" if stats["avg_edge"] else "N/A")
+            an_col4.metric("Total PNL", f"${stats['total_pnl']:.2f}")
+
+            # Win rate by edge level
+            st.markdown("#### Win Rate by Edge Level")
+            edge_data = repo.get_win_rate_by_edge()
+            edge_with_data = [e for e in edge_data if e["total"] > 0]
+
+            if edge_with_data:
+                fig_edge = go.Figure()
+                fig_edge.add_trace(go.Bar(
+                    x=[e["edge_range"] for e in edge_with_data],
+                    y=[e["win_rate"] for e in edge_with_data],
+                    marker_color="#3B82F6",
+                    text=[f"{e['win_rate']:.0%} ({e['wins']}/{e['total']})" for e in edge_with_data],
+                    textposition='auto',
+                ))
+                fig_edge.update_layout(
+                    template="plotly_dark",
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    height=250,
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    yaxis_tickformat=".0%",
+                    yaxis_title="Win Rate",
+                    xaxis_title="Edge at Entry",
+                )
+                st.plotly_chart(fig_edge, use_container_width=True)
+            else:
+                st.caption("Not enough data for edge analysis")
+
+            # Scanner prediction accuracy
+            st.markdown("#### Scanner Prediction Accuracy")
+            accuracy = repo.get_prediction_accuracy()
+
+            acc_col1, acc_col2 = st.columns(2)
+            with acc_col1:
+                yes_pct = accuracy["yes_correct"]
+                yes_total = accuracy["yes_total"]
+                st.metric(
+                    "When Scanner Flags YES",
+                    f"{yes_pct:.1%}" if yes_total > 0 else "N/A",
+                    help=f"Based on {yes_total} trades where you followed the YES recommendation"
+                )
+            with acc_col2:
+                no_pct = accuracy["no_correct"]
+                no_total = accuracy["no_total"]
+                st.metric(
+                    "When Scanner Flags NO",
+                    f"{no_pct:.1%}" if no_total > 0 else "N/A",
+                    help=f"Based on {no_total} trades where you followed the NO recommendation"
+                )
+
+
 def render_sidebar():
     """Render sidebar with controls and stats."""
     st.sidebar.markdown("### 📡 SCANNER CONTROL")
@@ -604,6 +814,46 @@ def render_market_detail_view(data, repo=None):
         st.markdown(f"**Holders Analyzed:** `{data.get('no_top_n_count', 0)}`")
         st.markdown(f"**Profitable:** `{data.get('no_profitable_count', 0)}` ({no_prof_pct:.0%})")
         st.markdown(f"**Avg Realized PNL:** `${data.get('no_avg_overall_pnl', 0):,.0f}`")
+
+        # Add to Portfolio Section
+        st.divider()
+        st.markdown("#### ADD TO PORTFOLIO")
+
+        # Determine default side based on flagged_side
+        flagged_side = data.get("flagged_side", "YES")
+        default_idx = 0 if flagged_side == "YES" else 1
+
+        trade_side = st.radio(
+            "Side",
+            ["YES", "NO"],
+            index=default_idx,
+            horizontal=True,
+            key=f"trade_side_{data.get('market_id')}"
+        )
+
+        # Entry price based on selected side
+        entry_price = yes_price if trade_side == "YES" else no_price
+        st.markdown(f"**Entry Price:** `${entry_price:.2f}`")
+
+        # Calculate edge
+        edge_pct = abs(yes_prof_pct - no_prof_pct) * 100
+
+        if st.button("📥 Add Trade", key=f"add_trade_{data.get('market_id')}", use_container_width=True):
+            if repo:
+                repo.add_trade(
+                    market_id=data.get("market_id"),
+                    condition_id=data.get("condition_id", ""),
+                    question=data.get("question", ""),
+                    slug=data.get("slug", ""),
+                    side=trade_side,
+                    entry_price=entry_price,
+                    flagged_side=flagged_side,
+                    edge_pct=edge_pct,
+                    score=data.get("imbalance_score"),
+                    scan_result_id=data.get("id"),
+                )
+                st.success(f"Added {trade_side} trade to portfolio!")
+                st.rerun()
 
     # Historical Trend Charts
     if repo:
@@ -929,10 +1179,17 @@ def main():
     render_sidebar()
 
     # Tab navigation
-    tab_opportunities, tab_all = st.tabs(["🎯 Top Opportunities", "📊 All Markets"])
+    tab_opportunities, tab_portfolio, tab_all = st.tabs([
+        "🎯 Top Opportunities",
+        "💼 Portfolio",
+        "📊 All Markets"
+    ])
 
     with tab_opportunities:
         render_opportunities_tab(repo)
+
+    with tab_portfolio:
+        render_portfolio_tab(repo)
 
     with tab_all:
         render_dashboard(repo)

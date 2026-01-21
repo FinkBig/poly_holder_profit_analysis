@@ -108,6 +108,42 @@ CREATE TABLE IF NOT EXISTS holder_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_holders_result ON holder_snapshots(scan_result_id);
 CREATE INDEX IF NOT EXISTS idx_holders_wallet ON holder_snapshots(wallet_address);
+
+
+-- Trades table: Portfolio tracking
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    condition_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    slug TEXT,
+
+    -- Trade entry
+    side TEXT NOT NULL,              -- 'YES' or 'NO' (what user is betting on)
+    entry_price REAL NOT NULL,       -- Price when trade logged
+    entry_date INTEGER NOT NULL,     -- Timestamp
+    scan_result_id INTEGER,          -- Link to scan that flagged it
+
+    -- Scanner prediction context
+    flagged_side TEXT,               -- What scanner recommended
+    edge_pct REAL,                   -- Edge % at entry
+    opportunity_score REAL,          -- Score at entry
+
+    -- Outcome tracking
+    outcome TEXT DEFAULT 'pending',  -- 'win', 'loss', 'pending', 'expired'
+    exit_price REAL,                 -- Final price (0 or 1 if resolved)
+    exit_date INTEGER,               -- When closed/resolved
+
+    -- Analytics
+    notes TEXT,
+    created_at INTEGER NOT NULL,
+
+    FOREIGN KEY (market_id) REFERENCES markets(market_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id);
+CREATE INDEX IF NOT EXISTS idx_trades_outcome ON trades(outcome);
+CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(entry_date DESC);
 """
 
 
