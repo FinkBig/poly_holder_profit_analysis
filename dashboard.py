@@ -281,12 +281,9 @@ def render_opportunities_tab(repo):
         slug = r.get("slug", "")
         url = f"https://polymarket.com/event/{slug}" if slug else ""
 
-        # Get holder count for the flagged side
-        flagged_side = r.get("flagged_side")
-        if flagged_side == "YES":
-            holder_count = r.get("yes_top_n_count", 0) or 0
-        else:
-            holder_count = r.get("no_top_n_count", 0) or 0
+        # Get holder counts for both sides
+        yes_holders = r.get("yes_top_n_count", 0) or 0
+        no_holders = r.get("no_top_n_count", 0) or 0
 
         opportunities.append({
             "rank": 0,
@@ -297,7 +294,8 @@ def render_opportunities_tab(repo):
             "edge": imbalance_pct,
             "pnl_diff": pnl_diff,
             "hours_remaining": hours_rem,
-            "holders": holder_count,
+            "yes_holders": yes_holders,
+            "no_holders": no_holders,
             "yes_price": yes_price,
             "no_price": no_price,
             "url": url,
@@ -317,9 +315,9 @@ def render_opportunities_tab(repo):
         opp["rank"] = i + 1
 
     # CSV Export button
-    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tHolders\tYES Price\tNO Price\tExpires\tURL\n"
+    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tYES N\tNO N\tYES Price\tNO Price\tExpires\tURL\n"
     for opp in opportunities:
-        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{opp['yes_price']:.2f}\t{opp['no_price']:.2f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
+        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['yes_holders']}\t{opp['no_holders']}\t{opp['yes_price']:.2f}\t{opp['no_price']:.2f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
 
     col_download, col_info = st.columns([1, 3])
     with col_download:
@@ -340,20 +338,20 @@ def render_opportunities_tab(repo):
 
     with col_list:
         # Header row
-        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp, h_copy = st.columns([0.3, 2.6, 0.7, 0.5, 0.5, 0.4, 0.5, 0.4])
+        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp, h_copy = st.columns([0.3, 2.5, 0.7, 0.5, 0.5, 0.5, 0.5, 0.4])
         h_rank.markdown("**#**")
         h_market.markdown("**Market**")
         h_action.markdown("**Action**")
         h_score.markdown("**Scr**")
         h_edge.markdown("**Edge**")
-        h_n.markdown("**N**")
+        h_n.markdown("**N Y/N**")
         h_exp.markdown("**Exp**")
         h_copy.markdown("**📋**")
 
         # Data rows
         with st.container(height=550):
             for opp in opportunities:
-                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp, c_copy = st.columns([0.3, 2.6, 0.7, 0.5, 0.5, 0.4, 0.5, 0.4])
+                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp, c_copy = st.columns([0.3, 2.5, 0.7, 0.5, 0.5, 0.5, 0.5, 0.4])
 
                 # Check if this market is selected
                 is_selected = st.session_state.get("opp_selected_market_id") == opp["market_id"]
@@ -362,7 +360,7 @@ def render_opportunities_tab(repo):
                     st.markdown(f"**{opp['rank']}**")
 
                 with c_market:
-                    market_name = opp['question'][:45] + "..." if len(opp['question']) > 45 else opp['question']
+                    market_name = opp['question'][:42] + "..." if len(opp['question']) > 42 else opp['question']
                     if st.button(
                         market_name,
                         key=f"opp_market_{opp['rank']}",
@@ -383,14 +381,14 @@ def render_opportunities_tab(repo):
                     st.markdown(f"{opp['edge']:.0f}%")
 
                 with c_n:
-                    st.markdown(f"{opp['holders']}")
+                    st.markdown(f"{opp['yes_holders']}/{opp['no_holders']}")
 
                 with c_exp:
                     st.markdown(format_time_remaining(opp['hours_remaining']))
 
                 with c_copy:
                     # Tab-separated row for Excel pasting
-                    copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\tYES:{opp['yes_price']:.2f}\tNO:{opp['no_price']:.2f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
+                    copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\tY:{opp['yes_holders']}\tN:{opp['no_holders']}\tYES:{opp['yes_price']:.2f}\tNO:{opp['no_price']:.2f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
                     render_copy_button(copy_text, f"copy_{opp['rank']}")
 
     # Analysis Panel (Right Side)
