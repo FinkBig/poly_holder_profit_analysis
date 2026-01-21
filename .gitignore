@@ -8,11 +8,8 @@ venv/
 env/
 .env
 
-# Data (allow scanner.db for demo)
+# Data (allow scanner.db for sharing)
 !data/scanner.db
-
-# Portfolio database (local trades, not tracked)
-data/portfolio.db
 
 # IDE
 .idea/
