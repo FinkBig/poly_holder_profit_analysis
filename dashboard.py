@@ -298,6 +298,8 @@ def render_opportunities_tab(repo):
             "pnl_diff": pnl_diff,
             "hours_remaining": hours_rem,
             "holders": holder_count,
+            "yes_price": yes_price,
+            "no_price": no_price,
             "url": url,
             "market_id": r.get("market_id"),
             "raw_data": r
@@ -315,9 +317,9 @@ def render_opportunities_tab(repo):
         opp["rank"] = i + 1
 
     # CSV Export button
-    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tHolders\tExpires\tURL\n"
+    csv_data = "Rank\tMarket\tAction\tScore\tEdge %\tPNL Diff\tHolders\tYES Price\tNO Price\tExpires\tURL\n"
     for opp in opportunities:
-        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
+        csv_data += f"{opp['rank']}\t{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{opp['yes_price']:.2f}\t{opp['no_price']:.2f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}\n"
 
     col_download, col_info = st.columns([1, 3])
     with col_download:
@@ -388,7 +390,7 @@ def render_opportunities_tab(repo):
 
                 with c_copy:
                     # Tab-separated row for Excel pasting
-                    copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
+                    copy_text = f"{opp['question']}\t{opp['action']}\t{opp['score']:.0f}\t{opp['edge']:.0f}%\t${opp['pnl_diff']:,.0f}\t{opp['holders']}\tYES:{opp['yes_price']:.2f}\tNO:{opp['no_price']:.2f}\t{format_time_remaining(opp['hours_remaining'])}\t{opp['url']}"
                     render_copy_button(copy_text, f"copy_{opp['rank']}")
 
     # Analysis Panel (Right Side)
