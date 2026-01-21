@@ -145,46 +145,50 @@ def format_time_remaining(hours):
     return f"{rem_hours}h"
 
 
-def calculate_opportunity_score(row):
+def calculate_opportunity_score(row, weights=None):
     """
     Opportunity score based on probability of winning.
 
-    Score Breakdown:
-    - Edge strength: ~50 pts (uncapped, primary signal)
-    - Sample size: 30 pts max (min of both sides, more data = confidence)
-    - PNL conviction: 10 pts max (experienced traders backing one side)
-    - Data quality: 10 pts max (low unknown = confident)
+    Score Breakdown (customizable weights):
+    - Edge strength: Primary signal (default weight: 50)
+    - Sample size: min of both sides for confidence (default weight: 30)
+    - PNL conviction: experienced traders backing one side (default weight: 10)
+    - Data quality: low unknown % = confident (default weight: 10)
 
     Note: Time/liquidity/volume are filtering preferences, not win probability factors.
     """
-    # Edge strength (uncapped) - THE primary signal
-    # 20% edge = 20 pts, 40% edge = 40 pts, etc.
+    if weights is None:
+        weights = {"edge": 50, "sample": 30, "pnl": 10, "quality": 10}
+
+    # Edge strength (0-1 normalized, then scaled by weight)
     yes_prof_pct = row.get("yes_profitable_pct", 0)
     no_prof_pct = row.get("no_profitable_pct", 0)
     imbalance_pct = abs(yes_prof_pct - no_prof_pct)
-    edge_score = imbalance_pct * 100  # Direct scaling, uncapped
+    edge_normalized = imbalance_pct  # 0 to 1 (0% to 100% edge)
+    edge_score = edge_normalized * weights["edge"]
 
-    # Sample size (0-30 points) - use MIN of both sides for confidence
-    # Need data on both sides to trust the signal
+    # Sample size (0-1 normalized) - use MIN of both sides for confidence
     yes_holders = row.get("yes_top_n_count", 5) or 5
     no_holders = row.get("no_top_n_count", 5) or 5
     min_holders = min(yes_holders, no_holders)
-    # Scale: 5 holders = 0 pts, 50 holders = 30 pts
-    sample_score = min(max((min_holders - 5) / 45, 0), 1) * 30
+    sample_normalized = min(max((min_holders - 5) / 45, 0), 1)  # 5->0, 50->1
+    sample_score = sample_normalized * weights["sample"]
 
-    # PNL conviction (0-10 points) - experienced traders' track record
+    # PNL conviction (0-1 normalized) - experienced traders' track record
     yes_avg_pnl = row.get("yes_avg_overall_pnl", 0) or 0
     no_avg_pnl = row.get("no_avg_overall_pnl", 0) or 0
     pnl_diff = abs(yes_avg_pnl - no_avg_pnl)
-    pnl_score = min(pnl_diff / 5000, 10)  # $50k diff = 10 pts
+    pnl_normalized = min(pnl_diff / 50000, 1)  # $50k diff = 1.0
+    pnl_score = pnl_normalized * weights["pnl"]
 
-    # Data quality (0-10 points) - penalize high unknown %
+    # Data quality (0-1 normalized) - penalize high unknown %
     flagged_side = row.get("flagged_side")
     if flagged_side == "YES":
         unknown_pct = row.get("yes_unknown_pct", 1) or 0
     else:
         unknown_pct = row.get("no_unknown_pct", 1) or 0
-    quality_score = (1 - unknown_pct) * 10
+    quality_normalized = 1 - unknown_pct  # 0% unknown = 1.0
+    quality_score = quality_normalized * weights["quality"]
 
     return edge_score + sample_score + pnl_score + quality_score
 
@@ -230,6 +234,14 @@ def render_opportunities_tab(repo):
     min_price = st.session_state.get("filter_min_price", 0.15)
     max_price = st.session_state.get("filter_max_price", 0.85)
 
+    # Get score weights from session state
+    weights = {
+        "edge": st.session_state.get("weight_edge", 50),
+        "sample": st.session_state.get("weight_sample", 30),
+        "pnl": st.session_state.get("weight_pnl", 10),
+        "quality": st.session_state.get("weight_quality", 10),
+    }
+
     # Fetch latest session data
     latest_session = repo.get_latest_session_id()
     if not latest_session:
@@ -270,7 +282,7 @@ def render_opportunities_tab(repo):
 
         # Calculate opportunity score
         r["hours_remaining"] = hours_rem
-        score = calculate_opportunity_score(r)
+        score = calculate_opportunity_score(r, weights)
 
         yes_avg_pnl = r.get("yes_avg_overall_pnl", 0) or 0
         no_avg_pnl = r.get("no_avg_overall_pnl", 0) or 0
@@ -431,6 +443,15 @@ def render_sidebar():
         with price_col2:
             max_price = st.number_input("Max", 0.01, 0.99, 0.85, step=0.05, key="filter_max_price", format="%.2f")
         st.caption("Filters apply to Top Opportunities tab")
+
+    # Score Weights
+    with st.sidebar.expander("⚖️ SCORE WEIGHTS", expanded=False):
+        st.caption("Adjust how each factor contributes to the opportunity score")
+        weight_edge = st.slider("Edge strength", 0, 100, 50, key="weight_edge", help="Higher edge = higher win probability")
+        weight_sample = st.slider("Sample size (min N)", 0, 100, 30, key="weight_sample", help="More holders on both sides = more confidence")
+        weight_pnl = st.slider("PNL conviction", 0, 100, 10, key="weight_pnl", help="Experienced traders backing one side")
+        weight_quality = st.slider("Data quality", 0, 100, 10, key="weight_quality", help="Lower unknown % = more confident")
+        st.caption("Score = Edge×W₁ + Sample×W₂ + PNL×W₃ + Quality×W₄")
 
     st.sidebar.markdown("---")
 
