@@ -108,9 +108,23 @@ CREATE TABLE IF NOT EXISTS holder_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_holders_result ON holder_snapshots(scan_result_id);
 CREATE INDEX IF NOT EXISTS idx_holders_wallet ON holder_snapshots(wallet_address);
+"""
 
 
--- Trades table: Portfolio tracking
+def init_database(db_path: str) -> None:
+    """Initialize the database with schema."""
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(SCHEMA_SQL)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+PORTFOLIO_SCHEMA_SQL = """
+-- Trades table: Portfolio tracking (stored separately to preserve across git operations)
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     market_id TEXT NOT NULL,
@@ -136,9 +150,7 @@ CREATE TABLE IF NOT EXISTS trades (
 
     -- Analytics
     notes TEXT,
-    created_at INTEGER NOT NULL,
-
-    FOREIGN KEY (market_id) REFERENCES markets(market_id)
+    created_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_trades_market ON trades(market_id);
@@ -147,13 +159,13 @@ CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(entry_date DESC);
 """
 
 
-def init_database(db_path: str) -> None:
-    """Initialize the database with schema."""
+def init_portfolio_database(db_path: str) -> None:
+    """Initialize the portfolio database with trades schema."""
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(db_path)
     try:
-        conn.executescript(SCHEMA_SQL)
+        conn.executescript(PORTFOLIO_SCHEMA_SQL)
         conn.commit()
     finally:
         conn.close()

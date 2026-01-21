@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from datetime import datetime
 
-from .schema import get_connection, init_database
+from .schema import get_connection, init_database, init_portfolio_database
 from ..models.market import ActiveMarket
 from ..models.scan_result import ImbalanceScanResult
 
@@ -13,13 +13,23 @@ from ..models.scan_result import ImbalanceScanResult
 class ScannerRepository:
     """Repository for scanner data operations."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, portfolio_db_path: Optional[str] = None):
         self.db_path = db_path
+        # Portfolio uses separate database to preserve trades across git operations
+        self.portfolio_db_path = portfolio_db_path or db_path.replace("scanner.db", "portfolio.db")
+
         if not Path(db_path).exists():
             init_database(db_path)
 
+        # Initialize portfolio database if it doesn't exist
+        if not Path(self.portfolio_db_path).exists():
+            init_portfolio_database(self.portfolio_db_path)
+
     def _get_conn(self) -> sqlite3.Connection:
         return get_connection(self.db_path)
+
+    def _get_portfolio_conn(self) -> sqlite3.Connection:
+        return get_connection(self.portfolio_db_path)
 
     # ==================== Sessions ====================
 
@@ -329,7 +339,7 @@ class ScannerRepository:
         notes: Optional[str] = None,
     ) -> int:
         """Log a new trade to portfolio. Returns trade ID."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             now = int(datetime.now().timestamp())
             cursor = conn.execute(
@@ -364,7 +374,7 @@ class ScannerRepository:
 
     def get_open_trades(self) -> List[Dict]:
         """Get all trades with outcome='pending'."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             rows = conn.execute(
                 """
@@ -379,7 +389,7 @@ class ScannerRepository:
 
     def get_all_trades(self, limit: int = 100) -> List[Dict]:
         """Get all trades ordered by entry_date DESC."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             rows = conn.execute(
                 """
@@ -397,7 +407,7 @@ class ScannerRepository:
         self, trade_id: int, outcome: str, exit_price: Optional[float] = None
     ) -> None:
         """Mark trade as win/loss with exit price."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             now = int(datetime.now().timestamp())
             conn.execute(
@@ -414,7 +424,7 @@ class ScannerRepository:
 
     def delete_trade(self, trade_id: int) -> None:
         """Remove a trade from portfolio."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             conn.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
             conn.commit()
@@ -423,7 +433,7 @@ class ScannerRepository:
 
     def update_trade_entry_price(self, trade_id: int, entry_price: float) -> None:
         """Update the entry price for a trade."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             conn.execute(
                 "UPDATE trades SET entry_price = ? WHERE id = ?",
@@ -435,7 +445,7 @@ class ScannerRepository:
 
     def get_portfolio_stats(self) -> Dict:
         """Return portfolio statistics."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             total = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
             open_count = conn.execute(
@@ -491,7 +501,7 @@ class ScannerRepository:
 
     def get_win_rate_by_edge(self) -> List[Dict]:
         """Get win rate bucketed by edge level at entry."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             # Bucket edges: 60-65, 65-70, 70-75, 75-80, 80+
             buckets = [
@@ -528,7 +538,7 @@ class ScannerRepository:
 
     def get_prediction_accuracy(self) -> Dict:
         """Get scanner prediction accuracy (when user followed scanner recommendation)."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             # When scanner flagged YES and user bought YES
             yes_correct_row = conn.execute(
@@ -570,7 +580,7 @@ class ScannerRepository:
 
     def get_trades_by_market(self, market_id: str) -> List[Dict]:
         """Get trade history for a specific market."""
-        conn = self._get_conn()
+        conn = self._get_portfolio_conn()
         try:
             rows = conn.execute(
                 """

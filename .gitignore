@@ -8,8 +8,11 @@ venv/
 env/
 .env
 
-# Data - don't track database to preserve local trades
-data/scanner.db
+# Data (allow scanner.db for demo)
+!data/scanner.db
+
+# Portfolio database (local trades, not tracked)
+data/portfolio.db
 
 # IDE
 .idea/
