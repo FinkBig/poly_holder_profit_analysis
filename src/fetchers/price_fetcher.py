@@ -2,17 +2,19 @@
 
 import aiohttp
 import asyncio
-import json
 import logging
 from typing import List, Dict, Tuple, Optional
 
-from ..config.settings import GAMMA_API_URL, REQUEST_DELAY_SECONDS
+from ..config.settings import REQUEST_DELAY_SECONDS
 
 logger = logging.getLogger(__name__)
 
+# CLOB API is more reliable for real-time price data
+CLOB_API_URL = "https://clob.polymarket.com"
+
 
 class PriceFetcher:
-    """Fetch current prices for specific markets."""
+    """Fetch current prices for specific markets using CLOB API."""
 
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
@@ -30,30 +32,37 @@ class PriceFetcher:
     async def fetch_market_by_condition(
         self, condition_id: str
     ) -> Optional[Dict]:
-        """Fetch market data by condition ID."""
-        params = {"condition_id": condition_id}
-
+        """Fetch market data by condition ID from CLOB API."""
         try:
             async with self.session.get(
-                f"{GAMMA_API_URL}/markets", params=params
+                f"{CLOB_API_URL}/markets/{condition_id}"
             ) as response:
                 if response.status == 200:
-                    markets = await response.json()
-                    if markets and len(markets) > 0:
-                        return markets[0]
+                    return await response.json()
+                else:
+                    logger.warning(
+                        f"CLOB API returned {response.status} for {condition_id}"
+                    )
                 return None
         except Exception as e:
             logger.error(f"Error fetching market {condition_id}: {e}")
             return None
 
     def parse_prices(self, market_data: Dict) -> Tuple[float, float]:
-        """Parse YES/NO prices from market data."""
-        outcome_prices = market_data.get("outcomePrices", [])
-        if isinstance(outcome_prices, str):
-            outcome_prices = json.loads(outcome_prices)
+        """Parse YES/NO prices from CLOB market data."""
+        tokens = market_data.get("tokens", [])
 
-        yes_price = float(outcome_prices[0]) if len(outcome_prices) > 0 else 0.5
-        no_price = float(outcome_prices[1]) if len(outcome_prices) > 1 else 0.5
+        yes_price = 0.5
+        no_price = 0.5
+
+        for token in tokens:
+            outcome = token.get("outcome", "").lower()
+            price = token.get("price", 0.5)
+
+            if outcome == "yes":
+                yes_price = float(price)
+            elif outcome == "no":
+                no_price = float(price)
 
         return yes_price, no_price
 
