@@ -228,6 +228,8 @@ def render_opportunities_tab(repo):
     max_days = st.session_state.get("filter_max_days", 14)
     min_edge = st.session_state.get("filter_min_edge", 60)
     min_liquidity = st.session_state.get("filter_min_liquidity", 1000)
+    min_price = st.session_state.get("filter_min_price", 0.15)
+    max_price = st.session_state.get("filter_max_price", 0.85)
 
     # Fetch latest session data
     latest_session = repo.get_latest_session_id()
@@ -259,6 +261,12 @@ def render_opportunities_tab(repo):
 
         liquidity = r.get("liquidity", 0)
         if liquidity < min_liquidity:
+            continue
+
+        # Price filter - check if YES or NO price is within range
+        yes_price = r.get("current_yes_price", 0)
+        no_price = r.get("current_no_price", 0)
+        if not ((min_price <= yes_price <= max_price) or (min_price <= no_price <= max_price)):
             continue
 
         # Calculate opportunity score
@@ -417,6 +425,12 @@ def render_sidebar():
         max_days = st.slider("Max days to expiry", 1, 90, 14, key="filter_max_days")
         min_edge = st.slider("Min edge %", 50, 90, 60, key="filter_min_edge")
         min_liquidity = st.number_input("Min liquidity ($)", 100, 100000, 1000, step=500, key="filter_min_liquidity")
+        st.markdown("**Price Range**")
+        price_col1, price_col2 = st.columns(2)
+        with price_col1:
+            min_price = st.number_input("Min", 0.01, 0.99, 0.15, step=0.05, key="filter_min_price", format="%.2f")
+        with price_col2:
+            max_price = st.number_input("Max", 0.01, 0.99, 0.85, step=0.05, key="filter_max_price", format="%.2f")
         st.caption("Filters apply to Top Opportunities tab")
 
     st.sidebar.markdown("---")
