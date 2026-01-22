@@ -2,8 +2,12 @@
 
 Uses the /positions endpoint to calculate each wallet's total PNL.
 
-NOTE: The positions API only provides total PNL (cashPnl, realizedPnl).
-Time-windowed PNL (e.g., 30-day) is NOT available from this endpoint.
+We use cashPnl (total PNL including unrealized) as the primary metric because:
+- realizedPnl only reflects closed trades, and ~80% of active holders have realizedPnl=0
+- cashPnl captures current profitability of open positions
+- This gives us data on 95%+ of holders vs only 20% with realizedPnl
+
+NOTE: Time-windowed PNL (e.g., 30-day) is NOT available from this endpoint.
 The pnl_30d field in MarketHolder will remain None.
 """
 
@@ -68,12 +72,14 @@ class LeaderboardFetcher:
         Calculate total PNL for a wallet by summing all position PNLs.
 
         Returns dict with:
-        - 'total_pnl': Realized PNL (closed trades) - used for profitability
-        - 'cash_pnl': Total PNL including unrealized
-        - 'realized_pnl': Same as total_pnl (for clarity)
+        - 'total_pnl': Cash PNL (total including unrealized) - PRIMARY METRIC
+        - 'cash_pnl': Same as total_pnl
+        - 'realized_pnl': Only closed trade PNL (often 0 for active traders)
 
-        We use realized_pnl as the primary metric because it reflects
-        actual closed trade performance, not paper gains.
+        We use cash_pnl as the primary metric because:
+        - ~80% of active holders have realizedPnl=0 (haven't closed positions)
+        - cash_pnl captures current profitability on open positions
+        - This gives us usable data on 95%+ of holders
         """
         wallet_lower = wallet_address.lower()
 
@@ -96,8 +102,8 @@ class LeaderboardFetcher:
             total_realized_pnl += realized_pnl
 
         result = {
-            # Use realized PNL as primary metric for historical profitability
-            "total_pnl": total_realized_pnl,
+            # Use cash PNL as primary metric (includes unrealized gains/losses)
+            "total_pnl": total_cash_pnl,
             "cash_pnl": total_cash_pnl,
             "realized_pnl": total_realized_pnl,
             "position_count": len(positions),

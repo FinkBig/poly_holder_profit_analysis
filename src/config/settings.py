@@ -6,7 +6,7 @@ DATA_API_URL = "https://data-api.polymarket.com"
 
 # Scanner thresholds
 IMBALANCE_THRESHOLD = 0.60  # 60% profitable skew triggers flag
-TOP_HOLDER_COUNT = 50  # Top 50 holders to analyze (API may cap lower)
+TOP_HOLDER_COUNT = 20  # Top 20 holders to analyze (API max limit is 20)
 TOP_HOLDER_PERCENT = 0.50  # Top 50% by share count
 
 # Rate limiting

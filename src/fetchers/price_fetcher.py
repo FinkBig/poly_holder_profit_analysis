@@ -135,7 +135,7 @@ class HolderStatsFetcher:
             return []
 
     async def fetch_wallet_pnl(self, wallet: str) -> Optional[float]:
-        """Fetch total realized PNL for a wallet."""
+        """Fetch total cash PNL for a wallet (includes unrealized gains/losses)."""
         wallet_lower = wallet.lower()
         if wallet_lower in self._pnl_cache:
             return self._pnl_cache[wallet_lower]
@@ -147,7 +147,9 @@ class HolderStatsFetcher:
             ) as response:
                 if response.status == 200:
                     positions = await response.json()
-                    total_pnl = sum(float(p.get("realizedPnl", 0) or 0) for p in positions)
+                    # Use cashPnl (total including unrealized) instead of realizedPnl
+                    # ~80% of active holders have realizedPnl=0
+                    total_pnl = sum(float(p.get("cashPnl", 0) or 0) for p in positions)
                     self._pnl_cache[wallet_lower] = total_pnl
                     return total_pnl
                 return None

@@ -35,17 +35,20 @@ class HolderFetcher:
     async def fetch_holders_for_market(
         self,
         condition_id: str,
-        limit: int = 50,
+        limit: int = TOP_HOLDER_COUNT,
     ) -> List[Dict[str, Any]]:
         """
         Fetch holders for a market condition.
 
         The API returns holders for BOTH outcomes in one call.
         The condition_id is the market's condition ID (0x-prefixed).
+
+        Note: The Polymarket API caps limit at 20 holders per token.
         """
         # The /holders endpoint takes market (condition_id) and returns holders per token
         params = {
             "market": condition_id,
+            "limit": min(limit, 20),  # API max is 20
         }
 
         try:
