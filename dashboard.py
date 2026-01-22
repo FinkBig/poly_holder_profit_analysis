@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.db.repository import ScannerRepository
 from src.config.settings import DEFAULT_DB_PATH, IMBALANCE_THRESHOLD
-from src.fetchers.price_fetcher import fetch_prices_for_trades
+from src.fetchers.price_fetcher import fetch_prices_for_trades, fetch_holder_stats_for_trades
 
 # Page Config
 st.set_page_config(
@@ -455,6 +455,25 @@ def render_portfolio_tab(repo):
             else:
                 st.info("No open trades to refresh")
 
+    with btn_col2:
+        if st.button("📊 Refresh Holder Stats", use_container_width=True):
+            trades_with_tokens = repo.get_trades_with_token_ids()
+            if trades_with_tokens:
+                # Filter trades that have token IDs
+                valid_trades = [t for t in trades_with_tokens if t.get("token_id_yes") and t.get("token_id_no")]
+                if valid_trades:
+                    with st.spinner(f"Fetching holder stats for {len(valid_trades)} markets..."):
+                        try:
+                            holder_stats = asyncio.run(fetch_holder_stats_for_trades(valid_trades))
+                            st.session_state["portfolio_holder_stats"] = holder_stats
+                            st.success(f"Updated holder stats for {len(holder_stats)} markets")
+                        except Exception as e:
+                            st.error(f"Failed to fetch holder stats: {e}")
+                else:
+                    st.warning("No token IDs found for trades (markets may not be in database)")
+            else:
+                st.info("No open trades to refresh")
+
     # Get all trades
     all_trades = repo.get_all_trades(limit=100)
 
@@ -462,8 +481,9 @@ def render_portfolio_tab(repo):
         st.info("No trades in portfolio. Add trades from the Top Opportunities tab.")
         return
 
-    # Get cached prices if available
+    # Get cached prices and holder stats if available
     cached_prices = st.session_state.get("portfolio_prices", {})
+    cached_holder_stats = st.session_state.get("portfolio_holder_stats", {})
 
     st.markdown("### Open Trades")
 
@@ -472,20 +492,21 @@ def render_portfolio_tab(repo):
 
     if open_trades:
         # Header row
-        h_market, h_side, h_entry, h_current, h_change, h_edge, h_actions = st.columns([2.5, 0.5, 0.7, 0.6, 0.6, 0.5, 1.2])
+        h_market, h_side, h_entry, h_current, h_change, h_edge, h_live, h_actions = st.columns([2.2, 0.4, 0.6, 0.5, 0.5, 0.5, 0.8, 1.0])
         h_market.markdown("**Market**")
         h_side.markdown("**Side**")
-        h_entry.markdown("**Entry $**")
+        h_entry.markdown("**Entry**")
         h_current.markdown("**Now**")
         h_change.markdown("**Chg**")
-        h_edge.markdown("**Edge**")
+        h_edge.markdown("**Entry Edge**")
+        h_live.markdown("**Live Edge**")
         h_actions.markdown("**Actions**")
 
         for trade in open_trades:
-            c_market, c_side, c_entry, c_current, c_change, c_edge, c_actions = st.columns([2.5, 0.5, 0.7, 0.6, 0.6, 0.5, 1.2])
+            c_market, c_side, c_entry, c_current, c_change, c_edge, c_live, c_actions = st.columns([2.2, 0.4, 0.6, 0.5, 0.5, 0.5, 0.8, 1.0])
 
             # Market name
-            market_name = trade["question"][:40] + "..." if len(trade["question"]) > 40 else trade["question"]
+            market_name = trade["question"][:35] + "..." if len(trade["question"]) > 35 else trade["question"]
             c_market.markdown(market_name)
 
             # Side with color
@@ -531,6 +552,24 @@ def render_portfolio_tab(repo):
             # Edge at entry
             edge = trade.get("edge_pct")
             c_edge.markdown(f"{edge:.0f}%" if edge else "—")
+
+            # Live holder stats
+            if trade["condition_id"] in cached_holder_stats:
+                live_stats = cached_holder_stats[trade["condition_id"]]
+                live_edge = live_stats.get("edge_pct", 0)
+                live_flagged = live_stats.get("flagged_side")
+
+                # Show live edge with color based on whether it still supports our side
+                if live_flagged == trade["side"]:
+                    edge_color = "#00C076"  # Green - still supports our trade
+                elif live_flagged is None:
+                    edge_color = "#FFA500"  # Orange - no clear signal
+                else:
+                    edge_color = "#FF4F4F"  # Red - flipped against us
+
+                c_live.markdown(f"<span style='color:{edge_color};font-weight:bold;'>{live_edge:.0f}%</span>", unsafe_allow_html=True)
+            else:
+                c_live.markdown("—")
 
             # Action buttons
             with c_actions:

@@ -618,3 +618,20 @@ class ScannerRepository:
             return [dict(row) for row in rows]
         finally:
             conn.close()
+
+    def get_trades_with_token_ids(self) -> List[Dict]:
+        """Get open trades with token IDs from markets table for holder fetching."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT t.*, m.token_id_yes, m.token_id_no
+                FROM trades t
+                LEFT JOIN markets m ON t.market_id = m.market_id
+                WHERE t.outcome = 'pending'
+                ORDER BY t.entry_date DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
