@@ -102,6 +102,126 @@ st.markdown("""
         background-color: #11141a;
         border-right: 1px solid #363945;
     }
+
+    /* === STATUS BADGES === */
+    .badge-yes {
+        background: rgba(0,192,118,0.15);
+        color: #00C076;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        display: inline-block;
+    }
+    .badge-no {
+        background: rgba(255,79,79,0.15);
+        color: #FF4F4F;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        display: inline-block;
+    }
+    .badge-win {
+        background: rgba(0,192,118,0.25);
+        color: #00C076;
+        border: 1px solid #00C076;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-weight: bold;
+        font-size: 0.8rem;
+        display: inline-block;
+    }
+    .badge-loss {
+        background: rgba(255,79,79,0.25);
+        color: #FF4F4F;
+        border: 1px solid #FF4F4F;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-weight: bold;
+        font-size: 0.8rem;
+        display: inline-block;
+    }
+
+    /* === TABLE HEADERS === */
+    .table-header {
+        background: linear-gradient(180deg, #1a1c24 0%, #262730 100%);
+        border-bottom: 2px solid #3B82F6;
+        padding: 10px 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.7rem;
+        color: #9CA3AF;
+        margin-bottom: 8px;
+    }
+
+    /* === ROW HOVER EFFECTS === */
+    .stButton button[kind="secondary"]:hover {
+        background: rgba(59,130,246,0.15) !important;
+        border-left: 3px solid #3B82F6;
+        transition: all 0.15s ease;
+    }
+    .stButton button[kind="primary"]:hover {
+        box-shadow: 0 0 12px rgba(59,130,246,0.4);
+    }
+
+    /* === CUSTOM SCROLLBAR === */
+    div[data-testid="stVerticalBlock"] > div::-webkit-scrollbar {
+        width: 6px;
+    }
+    div[data-testid="stVerticalBlock"] > div::-webkit-scrollbar-track {
+        background: #1a1c24;
+    }
+    div[data-testid="stVerticalBlock"] > div::-webkit-scrollbar-thumb {
+        background: #363945;
+        border-radius: 3px;
+    }
+    div[data-testid="stVerticalBlock"] > div::-webkit-scrollbar-thumb:hover {
+        background: #4a4d5a;
+    }
+
+    /* === SIDEBAR POLISH === */
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {
+        background: rgba(38,39,48,0.5);
+        border-radius: 8px;
+        padding: 8px 12px;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: #363945;
+        margin: 16px 0;
+    }
+
+    /* === ACTION BUTTONS === */
+    .action-btn {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        border: 1px solid transparent;
+        background: transparent;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .action-btn:hover {
+        transform: scale(1.1);
+    }
+    .action-btn-win:hover {
+        background: rgba(0,192,118,0.2);
+        border-color: #00C076;
+    }
+    .action-btn-loss:hover {
+        background: rgba(255,79,79,0.2);
+        border-color: #FF4F4F;
+    }
+    .action-btn-delete:hover {
+        background: rgba(156,163,175,0.2);
+        border-color: #9CA3AF;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -205,6 +325,36 @@ def get_trade_action(row):
     return "—", "#666666"
 
 
+def render_edge_bar(edge_pct, flagged_side="YES"):
+    """Render a visual edge bar with percentage."""
+    color = "#00C076" if flagged_side == "YES" else "#FF4F4F"
+    width = min(edge_pct, 100)
+    html = f'''
+    <div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;height:6px;background:#262730;border-radius:3px;overflow:hidden;min-width:60px;">
+            <div style="width:{width}%;height:100%;background:{color};border-radius:3px;"></div>
+        </div>
+        <span style="color:{color};font-weight:bold;font-size:0.85rem;">{edge_pct:.0f}%</span>
+    </div>
+    '''
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_side_badge(side):
+    """Render a side badge (YES/NO)."""
+    badge_class = "badge-yes" if side == "YES" else "badge-no"
+    return f"<span class='{badge_class}'>{side}</span>"
+
+
+def render_outcome_badge(outcome):
+    """Render an outcome badge (WIN/LOSS)."""
+    if outcome == "win":
+        return "<span class='badge-win'>WIN</span>"
+    elif outcome == "loss":
+        return "<span class='badge-loss'>LOSS</span>"
+    return ""
+
+
 def render_copy_button(text, key):
     """Render a copy-to-clipboard button using JavaScript."""
     escaped = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$").replace('"', '\\"')
@@ -303,6 +453,7 @@ def render_opportunities_tab(repo):
             "question": r.get("question", ""),
             "action": action,
             "action_color": color,
+            "flagged_side": r.get("flagged_side", "YES"),
             "score": score,
             "edge": imbalance_pct,
             "pnl_diff": pnl_diff,
@@ -350,21 +501,27 @@ def render_opportunities_tab(repo):
     col_list, col_detail = st.columns([1.5, 1])
 
     with col_list:
-        # Header row
-        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp, h_copy = st.columns([0.3, 2.5, 0.7, 0.5, 0.5, 0.5, 0.5, 0.4])
-        h_rank.markdown("**#**")
-        h_market.markdown("**Market**")
-        h_action.markdown("**Action**")
-        h_score.markdown("**Scr**")
-        h_edge.markdown("**Edge**")
-        h_n.markdown("**N Y/N**")
-        h_exp.markdown("**Exp**")
-        h_copy.markdown("**📋**")
+        # Header row with styled headers
+        st.markdown("""
+        <div class='table-header'>
+            <div style='display:flex;gap:8px;'>
+                <span style='width:30px;'>#</span>
+                <span style='flex:2.5;'>Market</span>
+                <span style='width:70px;'>Action</span>
+                <span style='width:50px;'>Score</span>
+                <span style='width:80px;'>Edge</span>
+                <span style='width:50px;'>N</span>
+                <span style='width:50px;'>Exp</span>
+                <span style='width:40px;'>📋</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        h_rank, h_market, h_action, h_score, h_edge, h_n, h_exp, h_copy = st.columns([0.3, 2.5, 0.7, 0.5, 0.8, 0.5, 0.5, 0.4])
 
         # Data rows
         with st.container(height=550):
             for opp in opportunities:
-                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp, c_copy = st.columns([0.3, 2.5, 0.7, 0.5, 0.5, 0.5, 0.5, 0.4])
+                c_rank, c_market, c_action, c_score, c_edge, c_n, c_exp, c_copy = st.columns([0.3, 2.5, 0.7, 0.5, 0.8, 0.5, 0.5, 0.4])
 
                 # Check if this market is selected
                 is_selected = st.session_state.get("opp_selected_market_id") == opp["market_id"]
@@ -385,13 +542,16 @@ def render_opportunities_tab(repo):
                         st.rerun()
 
                 with c_action:
-                    st.markdown(f"<span style='color:{opp['action_color']};font-weight:bold;'>{opp['action']}</span>", unsafe_allow_html=True)
+                    # Use badge styling for action
+                    badge_class = "badge-yes" if opp['flagged_side'] == "YES" else "badge-no"
+                    st.markdown(f"<span class='{badge_class}'>{opp['action']}</span>", unsafe_allow_html=True)
 
                 with c_score:
                     st.markdown(f"{opp['score']:.0f}")
 
                 with c_edge:
-                    st.markdown(f"{opp['edge']:.0f}%")
+                    # Use edge bar visualization
+                    render_edge_bar(opp['edge'], opp['flagged_side'])
 
                 with c_n:
                     st.markdown(f"{opp['yes_holders']}/{opp['no_holders']}")
@@ -485,18 +645,24 @@ def render_portfolio_tab(repo):
         st.markdown("### Open Trades")
 
         if open_trades:
-            # Header row
-            h_market, h_side, h_entry, h_now, h_edge, h_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.5, 0.8])
-            h_market.markdown("**Market**")
-            h_side.markdown("**Side**")
-            h_entry.markdown("**Entry**")
-            h_now.markdown("**Now**")
-            h_edge.markdown("**Edge**")
-            h_actions.markdown("**Actions**")
+            # Styled header row
+            st.markdown("""
+            <div class='table-header'>
+                <div style='display:flex;gap:8px;'>
+                    <span style='flex:2;'>Market</span>
+                    <span style='width:50px;'>Side</span>
+                    <span style='width:50px;'>Entry</span>
+                    <span style='width:50px;'>Now</span>
+                    <span style='width:80px;'>Edge</span>
+                    <span style='width:80px;'>Actions</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            h_market, h_side, h_entry, h_now, h_edge, h_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.7, 0.8])
 
             with st.container(height=350):
                 for trade in open_trades:
-                    c_market, c_side, c_entry, c_now, c_edge, c_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.5, 0.8])
+                    c_market, c_side, c_entry, c_now, c_edge, c_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.7, 0.8])
 
                     # Clickable market name
                     market_name = trade["question"][:30] + "..." if len(trade["question"]) > 30 else trade["question"]
@@ -513,9 +679,8 @@ def render_portfolio_tab(repo):
                             st.session_state["portfolio_selected_trade"] = trade
                             st.rerun()
 
-                    # Side
-                    side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
-                    c_side.markdown(f"<span style='color:{side_color};font-weight:bold;'>{trade['side']}</span>", unsafe_allow_html=True)
+                    # Side - use badge
+                    c_side.markdown(render_side_badge(trade["side"]), unsafe_allow_html=True)
 
                     # Entry price
                     c_entry.markdown(f"${trade['entry_price']:.2f}")
@@ -530,21 +695,19 @@ def render_portfolio_tab(repo):
                     else:
                         c_now.markdown("—")
 
-                    # Live edge (with color)
-                    if trade["condition_id"] in cached_holder_stats:
-                        live_stats = cached_holder_stats[trade["condition_id"]]
-                        live_edge = live_stats.get("edge_pct", 0)
-                        live_flagged = live_stats.get("flagged_side")
-                        if live_flagged == trade["side"]:
-                            edge_color = "#00C076"
-                        elif live_flagged is None:
-                            edge_color = "#FFA500"
+                    # Live edge - use edge bar
+                    with c_edge:
+                        if trade["condition_id"] in cached_holder_stats:
+                            live_stats = cached_holder_stats[trade["condition_id"]]
+                            live_edge = live_stats.get("edge_pct", 0)
+                            live_flagged = live_stats.get("flagged_side")
+                            render_edge_bar(live_edge, live_flagged or trade["side"])
                         else:
-                            edge_color = "#FF4F4F"
-                        c_edge.markdown(f"<span style='color:{edge_color};'>{live_edge:.0f}%</span>", unsafe_allow_html=True)
-                    else:
-                        edge = trade.get("edge_pct")
-                        c_edge.markdown(f"{edge:.0f}%" if edge else "—")
+                            edge = trade.get("edge_pct")
+                            if edge:
+                                render_edge_bar(edge, trade["side"])
+                            else:
+                                st.markdown("—")
 
                     # Action buttons
                     with c_actions:
@@ -569,9 +732,21 @@ def render_portfolio_tab(repo):
         # Closed Trades
         st.markdown("### Closed Trades")
         if closed_trades:
+            # Styled header row
+            st.markdown("""
+            <div class='table-header'>
+                <div style='display:flex;gap:8px;'>
+                    <span style='flex:2.5;'>Market</span>
+                    <span style='width:50px;'>Side</span>
+                    <span style='width:50px;'>Entry</span>
+                    <span style='width:50px;'>Exit</span>
+                    <span style='width:60px;'>Result</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             with st.container(height=200):
                 for trade in closed_trades[:15]:
-                    c_market, c_side, c_entry, c_exit, c_result = st.columns([2.5, 0.4, 0.5, 0.5, 0.5])
+                    c_market, c_side, c_entry, c_exit, c_result = st.columns([2.5, 0.4, 0.5, 0.5, 0.6])
 
                     market_name = trade["question"][:35] + "..." if len(trade["question"]) > 35 else trade["question"]
                     is_selected = st.session_state.get("portfolio_selected_trade_id") == trade["id"]
@@ -587,16 +762,14 @@ def render_portfolio_tab(repo):
                             st.session_state["portfolio_selected_trade"] = trade
                             st.rerun()
 
-                    side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
-                    c_side.markdown(f"<span style='color:{side_color};'>{trade['side']}</span>", unsafe_allow_html=True)
+                    # Use badges for side and result
+                    c_side.markdown(render_side_badge(trade["side"]), unsafe_allow_html=True)
                     c_entry.markdown(f"${trade['entry_price']:.2f}")
 
                     exit_price = trade.get("exit_price")
                     c_exit.markdown(f"${exit_price:.2f}" if exit_price is not None else "—")
 
-                    result_color = "#00C076" if trade["outcome"] == "win" else "#FF4F4F"
-                    result_text = "WIN" if trade["outcome"] == "win" else "LOSS"
-                    c_result.markdown(f"<span style='color:{result_color};font-weight:bold;'>{result_text}</span>", unsafe_allow_html=True)
+                    c_result.markdown(render_outcome_badge(trade["outcome"]), unsafe_allow_html=True)
         else:
             st.info("No closed trades yet")
 
@@ -700,6 +873,9 @@ def render_portfolio_tab(repo):
                     yaxis_tickformat=".0%",
                     yaxis_title="Win Rate",
                     xaxis_title="Edge at Entry",
+                    yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                    xaxis=dict(showgrid=False, zeroline=False),
+                    hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
                 )
                 st.plotly_chart(fig_edge, use_container_width=True)
             else:
@@ -872,7 +1048,10 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
             plot_bgcolor='rgba(0,0,0,0)',
             height=300,
             margin=dict(l=20, r=20, t=40, b=20),
-            yaxis_tickformat=".0%"
+            yaxis_tickformat=".0%",
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            xaxis=dict(showgrid=False, zeroline=False),
+            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
         )
         st.plotly_chart(fig_prof, use_container_width=True, key=f"fig_prof_{market_key}")
         
@@ -893,6 +1072,9 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
             plot_bgcolor='rgba(0,0,0,0)',
             height=300,
             margin=dict(l=20, r=20, t=40, b=20),
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            xaxis=dict(showgrid=False, zeroline=False),
+            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
         )
         st.plotly_chart(fig_pnl, use_container_width=True, key=f"fig_pnl_{market_key}")
 
@@ -1005,7 +1187,10 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
                     yaxis_tickformat=".0%",
                     xaxis_title="",
                     yaxis_title="Profitable %",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    xaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                    hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
                 )
                 st.plotly_chart(fig_trend, use_container_width=True, key=f"fig_trend_{market_key}")
 
@@ -1038,7 +1223,10 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
                     yaxis_range=[0, 1],
                     xaxis_title="",
                     yaxis_title="Share Price",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    xaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                    hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
                 )
                 st.plotly_chart(fig_price, use_container_width=True, key=f"fig_price_{market_key}")
             else:
