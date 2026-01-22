@@ -437,40 +437,29 @@ def render_portfolio_tab(repo):
 
     st.markdown("---")
 
-    # Action Buttons Row
-    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
-
+    # Single Refresh Button
+    btn_col1, btn_col2 = st.columns([1, 3])
     with btn_col1:
-        if st.button("🔄 Refresh Prices", use_container_width=True):
-            open_trades = repo.get_open_trades()
-            if open_trades:
-                condition_ids = [t["condition_id"] for t in open_trades]
-                with st.spinner("Fetching latest prices..."):
-                    try:
-                        prices = asyncio.run(fetch_prices_for_trades(condition_ids))
-                        st.session_state["portfolio_prices"] = prices
-                        st.success(f"Updated prices for {len(prices)} markets")
-                    except Exception as e:
-                        st.error(f"Failed to fetch prices: {e}")
-            else:
-                st.info("No open trades to refresh")
-
-    with btn_col2:
-        if st.button("📊 Refresh Holder Stats", use_container_width=True):
+        if st.button("🔄 Refresh Data", use_container_width=True):
             trades_with_tokens = repo.get_trades_with_token_ids()
             if trades_with_tokens:
-                # Filter trades that have token IDs
+                condition_ids = [t["condition_id"] for t in trades_with_tokens]
                 valid_trades = [t for t in trades_with_tokens if t.get("token_id_yes") and t.get("token_id_no")]
-                if valid_trades:
-                    with st.spinner(f"Fetching holder stats for {len(valid_trades)} markets..."):
-                        try:
+
+                with st.spinner("Fetching prices and holder stats..."):
+                    try:
+                        # Fetch prices
+                        prices = asyncio.run(fetch_prices_for_trades(condition_ids))
+                        st.session_state["portfolio_prices"] = prices
+
+                        # Fetch holder stats
+                        if valid_trades:
                             holder_stats = asyncio.run(fetch_holder_stats_for_trades(valid_trades))
                             st.session_state["portfolio_holder_stats"] = holder_stats
-                            st.success(f"Updated holder stats for {len(holder_stats)} markets")
-                        except Exception as e:
-                            st.error(f"Failed to fetch holder stats: {e}")
-                else:
-                    st.warning("No token IDs found for trades (markets may not be in database)")
+
+                        st.success(f"Updated {len(prices)} markets")
+                    except Exception as e:
+                        st.error(f"Failed to refresh: {e}")
             else:
                 st.info("No open trades to refresh")
 
@@ -481,144 +470,199 @@ def render_portfolio_tab(repo):
         st.info("No trades in portfolio. Add trades from the Top Opportunities tab.")
         return
 
-    # Get cached prices and holder stats if available
+    # Get cached data
     cached_prices = st.session_state.get("portfolio_prices", {})
     cached_holder_stats = st.session_state.get("portfolio_holder_stats", {})
 
-    st.markdown("### Open Trades")
-
-    # Filter open trades
+    # Filter trades
     open_trades = [t for t in all_trades if t["outcome"] == "pending"]
-
-    if open_trades:
-        # Header row
-        h_market, h_side, h_entry, h_current, h_change, h_edge, h_live, h_actions = st.columns([2.2, 0.4, 0.6, 0.5, 0.5, 0.5, 0.8, 1.0])
-        h_market.markdown("**Market**")
-        h_side.markdown("**Side**")
-        h_entry.markdown("**Entry**")
-        h_current.markdown("**Now**")
-        h_change.markdown("**Chg**")
-        h_edge.markdown("**Entry Edge**")
-        h_live.markdown("**Live Edge**")
-        h_actions.markdown("**Actions**")
-
-        for trade in open_trades:
-            c_market, c_side, c_entry, c_current, c_change, c_edge, c_live, c_actions = st.columns([2.2, 0.4, 0.6, 0.5, 0.5, 0.5, 0.8, 1.0])
-
-            # Market name
-            market_name = trade["question"][:35] + "..." if len(trade["question"]) > 35 else trade["question"]
-            c_market.markdown(market_name)
-
-            # Side with color
-            side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
-            c_side.markdown(f"<span style='color:{side_color};font-weight:bold;'>{trade['side']}</span>", unsafe_allow_html=True)
-
-            # Entry price - editable
-            with c_entry:
-                new_entry = st.number_input(
-                    "Entry",
-                    min_value=0.01,
-                    max_value=0.99,
-                    value=float(trade['entry_price']),
-                    step=0.01,
-                    format="%.2f",
-                    key=f"entry_{trade['id']}",
-                    label_visibility="collapsed"
-                )
-                # Update if changed
-                if abs(new_entry - trade['entry_price']) > 0.001:
-                    repo.update_trade_entry_price(trade['id'], new_entry)
-                    st.rerun()
-
-            # Current price (from cache if available)
-            current_price = None
-            if trade["condition_id"] in cached_prices:
-                yes_price, no_price = cached_prices[trade["condition_id"]]
-                current_price = yes_price if trade["side"] == "YES" else no_price
-
-            if current_price is not None:
-                c_current.markdown(f"${current_price:.2f}")
-
-                # Price change (use potentially updated entry price)
-                entry_for_calc = new_entry if 'new_entry' in dir() else trade['entry_price']
-                change = current_price - entry_for_calc
-                change_pct = (change / entry_for_calc * 100) if entry_for_calc > 0 else 0
-                change_color = "#00C076" if change >= 0 else "#FF4F4F"
-                c_change.markdown(f"<span style='color:{change_color};'>{change_pct:+.1f}%</span>", unsafe_allow_html=True)
-            else:
-                c_current.markdown("—")
-                c_change.markdown("—")
-
-            # Edge at entry
-            edge = trade.get("edge_pct")
-            c_edge.markdown(f"{edge:.0f}%" if edge else "—")
-
-            # Live holder stats
-            if trade["condition_id"] in cached_holder_stats:
-                live_stats = cached_holder_stats[trade["condition_id"]]
-                live_edge = live_stats.get("edge_pct", 0)
-                live_flagged = live_stats.get("flagged_side")
-
-                # Show live edge with color based on whether it still supports our side
-                if live_flagged == trade["side"]:
-                    edge_color = "#00C076"  # Green - still supports our trade
-                elif live_flagged is None:
-                    edge_color = "#FFA500"  # Orange - no clear signal
-                else:
-                    edge_color = "#FF4F4F"  # Red - flipped against us
-
-                c_live.markdown(f"<span style='color:{edge_color};font-weight:bold;'>{live_edge:.0f}%</span>", unsafe_allow_html=True)
-            else:
-                c_live.markdown("—")
-
-            # Action buttons
-            with c_actions:
-                btn_col_win, btn_col_loss, btn_col_del = st.columns(3)
-                with btn_col_win:
-                    if st.button("✓", key=f"win_{trade['id']}", help="Mark as Win"):
-                        exit_price = 1.0 if trade["side"] == "YES" else 0.0
-                        repo.update_trade_outcome(trade["id"], "win", exit_price)
-                        st.rerun()
-                with btn_col_loss:
-                    if st.button("✗", key=f"loss_{trade['id']}", help="Mark as Loss"):
-                        exit_price = 0.0 if trade["side"] == "YES" else 1.0
-                        repo.update_trade_outcome(trade["id"], "loss", exit_price)
-                        st.rerun()
-                with btn_col_del:
-                    if st.button("🗑", key=f"del_{trade['id']}", help="Remove"):
-                        repo.delete_trade(trade["id"])
-                        st.rerun()
-
-    else:
-        st.info("No open trades")
-
-    # Closed Trades Section
-    st.markdown("### Closed Trades")
     closed_trades = [t for t in all_trades if t["outcome"] in ("win", "loss")]
 
-    if closed_trades:
-        for trade in closed_trades[:20]:  # Show last 20 closed
-            c_market, c_side, c_entry, c_exit, c_result, c_edge = st.columns([3, 0.5, 0.6, 0.6, 0.6, 0.5])
+    # Split layout: Trade list on left, Analysis on right
+    col_list, col_detail = st.columns([1.5, 1])
 
-            market_name = trade["question"][:45] + "..." if len(trade["question"]) > 45 else trade["question"]
-            c_market.markdown(market_name)
+    with col_list:
+        st.markdown("### Open Trades")
 
-            side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
-            c_side.markdown(f"<span style='color:{side_color};'>{trade['side']}</span>", unsafe_allow_html=True)
+        if open_trades:
+            # Header row
+            h_market, h_side, h_entry, h_now, h_edge, h_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.5, 0.8])
+            h_market.markdown("**Market**")
+            h_side.markdown("**Side**")
+            h_entry.markdown("**Entry**")
+            h_now.markdown("**Now**")
+            h_edge.markdown("**Edge**")
+            h_actions.markdown("**Actions**")
 
-            c_entry.markdown(f"${trade['entry_price']:.2f}")
+            with st.container(height=350):
+                for trade in open_trades:
+                    c_market, c_side, c_entry, c_now, c_edge, c_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.5, 0.8])
 
-            exit_price = trade.get("exit_price")
-            c_exit.markdown(f"${exit_price:.2f}" if exit_price is not None else "—")
+                    # Clickable market name
+                    market_name = trade["question"][:30] + "..." if len(trade["question"]) > 30 else trade["question"]
+                    is_selected = st.session_state.get("portfolio_selected_trade_id") == trade["id"]
 
-            result_color = "#00C076" if trade["outcome"] == "win" else "#FF4F4F"
-            result_text = "WIN" if trade["outcome"] == "win" else "LOSS"
-            c_result.markdown(f"<span style='color:{result_color};font-weight:bold;'>{result_text}</span>", unsafe_allow_html=True)
+                    with c_market:
+                        if st.button(
+                            market_name,
+                            key=f"ptrade_{trade['id']}",
+                            use_container_width=True,
+                            type="primary" if is_selected else "secondary"
+                        ):
+                            st.session_state["portfolio_selected_trade_id"] = trade["id"]
+                            st.session_state["portfolio_selected_trade"] = trade
+                            st.rerun()
 
-            edge = trade.get("edge_pct")
-            c_edge.markdown(f"{edge:.0f}%" if edge else "—")
-    else:
-        st.info("No closed trades yet")
+                    # Side
+                    side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
+                    c_side.markdown(f"<span style='color:{side_color};font-weight:bold;'>{trade['side']}</span>", unsafe_allow_html=True)
+
+                    # Entry price
+                    c_entry.markdown(f"${trade['entry_price']:.2f}")
+
+                    # Current price
+                    if trade["condition_id"] in cached_prices:
+                        yes_price, no_price = cached_prices[trade["condition_id"]]
+                        current_price = yes_price if trade["side"] == "YES" else no_price
+                        change = current_price - trade['entry_price']
+                        change_color = "#00C076" if change >= 0 else "#FF4F4F"
+                        c_now.markdown(f"<span style='color:{change_color};'>${current_price:.2f}</span>", unsafe_allow_html=True)
+                    else:
+                        c_now.markdown("—")
+
+                    # Live edge (with color)
+                    if trade["condition_id"] in cached_holder_stats:
+                        live_stats = cached_holder_stats[trade["condition_id"]]
+                        live_edge = live_stats.get("edge_pct", 0)
+                        live_flagged = live_stats.get("flagged_side")
+                        if live_flagged == trade["side"]:
+                            edge_color = "#00C076"
+                        elif live_flagged is None:
+                            edge_color = "#FFA500"
+                        else:
+                            edge_color = "#FF4F4F"
+                        c_edge.markdown(f"<span style='color:{edge_color};'>{live_edge:.0f}%</span>", unsafe_allow_html=True)
+                    else:
+                        edge = trade.get("edge_pct")
+                        c_edge.markdown(f"{edge:.0f}%" if edge else "—")
+
+                    # Action buttons
+                    with c_actions:
+                        b1, b2, b3 = st.columns(3)
+                        with b1:
+                            if st.button("✓", key=f"win_{trade['id']}", help="Win"):
+                                exit_price = 1.0 if trade["side"] == "YES" else 0.0
+                                repo.update_trade_outcome(trade["id"], "win", exit_price)
+                                st.rerun()
+                        with b2:
+                            if st.button("✗", key=f"loss_{trade['id']}", help="Loss"):
+                                exit_price = 0.0 if trade["side"] == "YES" else 1.0
+                                repo.update_trade_outcome(trade["id"], "loss", exit_price)
+                                st.rerun()
+                        with b3:
+                            if st.button("🗑", key=f"del_{trade['id']}", help="Delete"):
+                                repo.delete_trade(trade["id"])
+                                st.rerun()
+        else:
+            st.info("No open trades")
+
+        # Closed Trades
+        st.markdown("### Closed Trades")
+        if closed_trades:
+            with st.container(height=200):
+                for trade in closed_trades[:15]:
+                    c_market, c_side, c_entry, c_exit, c_result = st.columns([2.5, 0.4, 0.5, 0.5, 0.5])
+
+                    market_name = trade["question"][:35] + "..." if len(trade["question"]) > 35 else trade["question"]
+                    is_selected = st.session_state.get("portfolio_selected_trade_id") == trade["id"]
+
+                    with c_market:
+                        if st.button(
+                            market_name,
+                            key=f"ctrade_{trade['id']}",
+                            use_container_width=True,
+                            type="primary" if is_selected else "secondary"
+                        ):
+                            st.session_state["portfolio_selected_trade_id"] = trade["id"]
+                            st.session_state["portfolio_selected_trade"] = trade
+                            st.rerun()
+
+                    side_color = "#00C076" if trade["side"] == "YES" else "#FF4F4F"
+                    c_side.markdown(f"<span style='color:{side_color};'>{trade['side']}</span>", unsafe_allow_html=True)
+                    c_entry.markdown(f"${trade['entry_price']:.2f}")
+
+                    exit_price = trade.get("exit_price")
+                    c_exit.markdown(f"${exit_price:.2f}" if exit_price is not None else "—")
+
+                    result_color = "#00C076" if trade["outcome"] == "win" else "#FF4F4F"
+                    result_text = "WIN" if trade["outcome"] == "win" else "LOSS"
+                    c_result.markdown(f"<span style='color:{result_color};font-weight:bold;'>{result_text}</span>", unsafe_allow_html=True)
+        else:
+            st.info("No closed trades yet")
+
+    # Analysis Panel (Right Side)
+    with col_detail:
+        selected_trade = st.session_state.get("portfolio_selected_trade")
+
+        if selected_trade:
+            # Try to get scan data for this market
+            market_id = selected_trade.get("market_id")
+            scan_data = None
+            if market_id:
+                history = repo.get_market_history(market_id, limit=1)
+                if history:
+                    scan_data = history[0]
+                    # Add question and slug from trade
+                    scan_data["question"] = selected_trade.get("question", "")
+                    scan_data["slug"] = selected_trade.get("slug", "")
+
+            if scan_data:
+                render_market_detail_view(scan_data, repo=repo)
+            else:
+                # Show basic trade info if no scan data
+                st.markdown(f"### {selected_trade.get('question', 'Trade Details')}")
+                st.markdown(f"**Side:** {selected_trade.get('side')}")
+                st.markdown(f"**Entry Price:** ${selected_trade.get('entry_price', 0):.2f}")
+                st.markdown(f"**Entry Edge:** {selected_trade.get('edge_pct', 0):.0f}%")
+
+                # Show live stats if available
+                condition_id = selected_trade.get("condition_id")
+                if condition_id in cached_holder_stats:
+                    st.markdown("---")
+                    st.markdown("### Live Holder Stats")
+                    live = cached_holder_stats[condition_id]
+                    yes_stats = live.get("yes", {})
+                    no_stats = live.get("no", {})
+
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        st.markdown("**YES Side**")
+                        st.markdown(f"Profitable: {yes_stats.get('profitable_pct', 0):.0%}")
+                        st.markdown(f"Avg PNL: ${yes_stats.get('avg_pnl', 0):,.0f}")
+                    with col_no:
+                        st.markdown("**NO Side**")
+                        st.markdown(f"Profitable: {no_stats.get('profitable_pct', 0):.0%}")
+                        st.markdown(f"Avg PNL: ${no_stats.get('avg_pnl', 0):,.0f}")
+
+                # Edit entry price
+                st.markdown("---")
+                st.markdown("### Edit Trade")
+                new_entry = st.number_input(
+                    "Entry Price",
+                    min_value=0.01,
+                    max_value=0.99,
+                    value=float(selected_trade.get('entry_price', 0.5)),
+                    step=0.01,
+                    format="%.2f",
+                    key=f"edit_entry_{selected_trade['id']}"
+                )
+                if abs(new_entry - selected_trade.get('entry_price', 0)) > 0.001:
+                    if st.button("Save Entry Price"):
+                        repo.update_trade_entry_price(selected_trade['id'], new_entry)
+                        st.success("Entry price updated!")
+                        st.rerun()
+        else:
+            st.info("Select a trade to view analysis")
 
     # Win Rate Analytics Section
     st.markdown("---")
