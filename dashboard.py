@@ -929,7 +929,7 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
             ["YES", "NO"],
             index=default_idx,
             horizontal=True,
-            key=f"trade_side_{data.get('market_id')}"
+            key=f"trade_side_{key_prefix}_{data.get('market_id')}"
         )
 
         # Entry price based on selected side
@@ -939,7 +939,7 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
         # Calculate edge
         edge_pct = abs(yes_prof_pct - no_prof_pct) * 100
 
-        if st.button("📥 Add Trade", key=f"add_trade_{data.get('market_id')}", use_container_width=True):
+        if st.button("📥 Add Trade", key=f"add_trade_{key_prefix}_{data.get('market_id')}", use_container_width=True):
             if repo:
                 repo.add_trade(
                     market_id=data.get("market_id"),
