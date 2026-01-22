@@ -418,7 +418,7 @@ def render_opportunities_tab(repo):
             st.session_state["opp_selected_raw_data"] = selected_data
 
         if selected_data:
-            render_market_detail_view(selected_data, repo=repo)
+            render_market_detail_view(selected_data, repo=repo, key_prefix="opp")
         else:
             st.info("Select a market to view analysis.")
 
@@ -617,7 +617,7 @@ def render_portfolio_tab(repo):
                     scan_data["slug"] = selected_trade.get("slug", "")
 
             if scan_data:
-                render_market_detail_view(scan_data, repo=repo)
+                render_market_detail_view(scan_data, repo=repo, key_prefix="port")
             else:
                 # Show basic trade info if no scan data
                 st.markdown(f"### {selected_trade.get('question', 'Trade Details')}")
@@ -819,8 +819,11 @@ def render_sidebar():
         st.sidebar.error(f"DB Error: {e}")
 
 
-def render_market_detail_view(data, repo=None):
+def render_market_detail_view(data, repo=None, key_prefix=""):
     """Render detailed interactive analysis for a selected market."""
+    # Generate unique key based on market_id and prefix
+    market_key = f"{key_prefix}_{data.get('market_id', 'unknown')}"
+
     # Market Header
     st.markdown(f"<div class='terminal-header'>ANALYSIS :: {data.get('question')}</div>", unsafe_allow_html=True)
     
@@ -871,7 +874,7 @@ def render_market_detail_view(data, repo=None):
             margin=dict(l=20, r=20, t=40, b=20),
             yaxis_tickformat=".0%"
         )
-        st.plotly_chart(fig_prof, use_container_width=True)
+        st.plotly_chart(fig_prof, use_container_width=True, key=f"fig_prof_{market_key}")
         
         # 2. Avg Realized PNL
         fig_pnl = go.Figure()
@@ -891,7 +894,7 @@ def render_market_detail_view(data, repo=None):
             height=300,
             margin=dict(l=20, r=20, t=40, b=20),
         )
-        st.plotly_chart(fig_pnl, use_container_width=True)
+        st.plotly_chart(fig_pnl, use_container_width=True, key=f"fig_pnl_{market_key}")
 
     with c_right:
         yes_price = data.get('current_yes_price', 0)
@@ -1004,7 +1007,7 @@ def render_market_detail_view(data, repo=None):
                     yaxis_title="Profitable %",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                st.plotly_chart(fig_trend, use_container_width=True)
+                st.plotly_chart(fig_trend, use_container_width=True, key=f"fig_trend_{market_key}")
 
                 # Price History Chart
                 fig_price = go.Figure()
@@ -1037,7 +1040,7 @@ def render_market_detail_view(data, repo=None):
                     yaxis_title="Share Price",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
-                st.plotly_chart(fig_price, use_container_width=True)
+                st.plotly_chart(fig_price, use_container_width=True, key=f"fig_price_{market_key}")
             else:
                 st.caption("📈 Trend data available after multiple scans")
 
@@ -1262,7 +1265,7 @@ def _render_market_list_and_detail(df, repo, is_search=False):
             st.session_state["selected_raw_data"] = selected_data
 
         if selected_data is not None:
-            render_market_detail_view(selected_data, repo=repo)
+            render_market_detail_view(selected_data, repo=repo, key_prefix="all")
         else:
             st.info("Select a market to view analysis.")
 
