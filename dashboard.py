@@ -383,14 +383,14 @@ def render_opportunities_tab(repo):
     max_days = st.session_state.get("filter_max_days", 14)
     min_edge = st.session_state.get("filter_min_edge", 60)
     min_liquidity = st.session_state.get("filter_min_liquidity", 1000)
-    min_price = st.session_state.get("filter_min_price", 0.15)
-    max_price = st.session_state.get("filter_max_price", 0.85)
+    min_price = st.session_state.get("filter_min_price", 0.10)
+    max_price = st.session_state.get("filter_max_price", 0.90)
 
     # Get score weights from session state
     weights = {
-        "edge": st.session_state.get("weight_edge", 50),
-        "sample": st.session_state.get("weight_sample", 30),
-        "pnl": st.session_state.get("weight_pnl", 10),
+        "edge": st.session_state.get("weight_edge", 40),
+        "sample": st.session_state.get("weight_sample", 25),
+        "pnl": st.session_state.get("weight_pnl", 25),
         "quality": st.session_state.get("weight_quality", 10),
     }
 
@@ -923,17 +923,17 @@ def render_sidebar():
         st.markdown("**Price Range**")
         price_col1, price_col2 = st.columns(2)
         with price_col1:
-            min_price = st.number_input("Min", 0.01, 0.99, 0.15, step=0.05, key="filter_min_price", format="%.2f")
+            min_price = st.number_input("Min", 0.01, 0.99, 0.10, step=0.05, key="filter_min_price", format="%.2f")
         with price_col2:
-            max_price = st.number_input("Max", 0.01, 0.99, 0.85, step=0.05, key="filter_max_price", format="%.2f")
+            max_price = st.number_input("Max", 0.01, 0.99, 0.90, step=0.05, key="filter_max_price", format="%.2f")
         st.caption("Filters apply to Top Opportunities tab")
 
     # Score Weights
     with st.sidebar.expander("⚖️ SCORE WEIGHTS", expanded=False):
         st.caption("Adjust how each factor contributes to the opportunity score")
-        weight_edge = st.slider("Edge strength", 0, 100, 50, key="weight_edge", help="Higher edge = higher win probability")
-        weight_sample = st.slider("Sample size (min N)", 0, 100, 30, key="weight_sample", help="More holders on both sides = more confidence")
-        weight_pnl = st.slider("PNL conviction", 0, 100, 10, key="weight_pnl", help="Experienced traders backing one side")
+        weight_edge = st.slider("Edge strength", 0, 100, 40, key="weight_edge", help="Higher edge = higher win probability")
+        weight_sample = st.slider("Sample size (min N)", 0, 100, 25, key="weight_sample", help="More holders on both sides = more confidence")
+        weight_pnl = st.slider("PNL conviction", 0, 100, 25, key="weight_pnl", help="Experienced traders backing one side")
         weight_quality = st.slider("Data quality", 0, 100, 10, key="weight_quality", help="Lower unknown % = more confident")
         st.caption("Score = Edge×W₁ + Sample×W₂ + PNL×W₃ + Quality×W₄")
 
