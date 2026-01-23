@@ -582,6 +582,12 @@ def render_opportunities_tab(repo):
         else:
             st.info("Select a market to view analysis.")
 
+    # Historical Charts - Below the split layout (full width)
+    if selected_data:
+        st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
+        render_historical_charts(selected_data, repo, key_prefix="opp")
+
+
 def render_portfolio_tab(repo):
     """Render the Portfolio tab with trade tracking and analytics."""
     st.markdown("<div class='terminal-header'>PORTFOLIO TRACKER</div>", unsafe_allow_html=True)
@@ -837,6 +843,19 @@ def render_portfolio_tab(repo):
         else:
             st.info("Select a trade to view analysis")
 
+    # Historical Charts - Below the split layout (full width)
+    selected_trade = st.session_state.get("portfolio_selected_trade")
+    if selected_trade:
+        market_id = selected_trade.get("market_id")
+        if market_id:
+            # Get scan data for historical charts
+            history = repo.get_market_history(market_id, limit=1)
+            if history:
+                chart_data = history[0]
+                chart_data["market_id"] = market_id
+                st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
+                render_historical_charts(chart_data, repo, key_prefix="port")
+
     # Win Rate Analytics Section
     st.markdown("---")
     with st.expander("📊 Win Rate Analytics", expanded=True):
@@ -1063,8 +1082,13 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
             y=avg_pnl,
             marker_color="#3B82F6",
             text=[f"${p:,.0f}" for p in avg_pnl],
-            textposition='auto',
+            textposition='outside',
+            textfont=dict(size=11),
+            constraintext='none',
         ))
+        # Calculate max y value to ensure text labels fit
+        max_pnl = max(avg_pnl) if avg_pnl else 0
+        y_max = max_pnl * 1.25 if max_pnl > 0 else 1
         fig_pnl.update_layout(
             title="Avg Whale Realized PNL ($)",
             template="plotly_dark",
@@ -1072,7 +1096,7 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
             plot_bgcolor='rgba(0,0,0,0)',
             height=300,
             margin=dict(l=20, r=20, t=40, b=20),
-            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False, range=[0, y_max]),
             xaxis=dict(showgrid=False, zeroline=False),
             hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
         )
@@ -1138,122 +1162,108 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
                 st.success(f"Added {trade_side} trade to portfolio!")
                 st.rerun()
 
-    # Historical Trend Charts - Side by side below main content
-    if repo:
-        market_id = data.get("market_id")
-        if market_id:
-            history = repo.get_market_history(market_id)
-            if len(history) >= 2:
-                # Sort by scanned_at ascending for chronological order
-                history = sorted(history, key=lambda x: x.get("scanned_at", 0))
 
-                timestamps = [datetime.fromtimestamp(h.get("scanned_at", 0)) for h in history]
-                # Format dates as DD/MM for hover
-                date_labels = [t.strftime("%d/%m") for t in timestamps]
-                yes_prof = [h.get("yes_profitable_pct", 0) for h in history]
-                no_prof = [h.get("no_profitable_pct", 0) for h in history]
-                yes_prices = [h.get("current_yes_price", 0) for h in history]
-                no_prices = [h.get("current_no_price", 0) for h in history]
-                # Get holder counts for hover
-                yes_counts = [h.get("yes_top_n_count", 0) or 0 for h in history]
-                no_counts = [h.get("no_top_n_count", 0) or 0 for h in history]
 
-                # Add spacing before historical charts
-                st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True)
-                st.divider()
+def render_historical_charts(data, repo, key_prefix=""):
+    """Render historical trend charts for a market (profitability + price)."""
+    if not repo:
+        return
 
-                # Side by side layout for historical charts
-                hist_left, hist_right = st.columns(2)
+    market_id = data.get("market_id")
+    if not market_id:
+        return
 
-                with hist_left:
-                    # Profitability Trend Chart
-                    fig_trend = go.Figure()
-                    fig_trend.add_trace(go.Scatter(
-                        x=timestamps,
-                        y=yes_prof,
-                        mode='lines+markers',
-                        name='YES',
-                        line=dict(color='#00C076', width=2),
-                        marker=dict(size=6),
-                        customdata=list(zip(date_labels, yes_counts)),
-                        hovertemplate='%{customdata[0]}<br>N = %{customdata[1]}<extra></extra>'
-                    ))
-                    fig_trend.add_trace(go.Scatter(
-                        x=timestamps,
-                        y=no_prof,
-                        mode='lines+markers',
-                        name='NO',
-                        line=dict(color='#FF4F4F', width=2),
-                        marker=dict(size=6),
-                        customdata=list(zip(date_labels, no_counts)),
-                        hovertemplate='%{customdata[0]}<br>N = %{customdata[1]}<extra></extra>'
-                    ))
-                    fig_trend.add_hline(
-                        y=IMBALANCE_THRESHOLD,
-                        line_dash="dot",
-                        line_color="orange",
-                        annotation_text=f"{IMBALANCE_THRESHOLD:.0%}",
-                    )
-                    fig_trend.update_layout(
-                        title="Profitability Trend",
-                        template="plotly_dark",
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        height=220,
-                        margin=dict(l=20, r=20, t=40, b=20),
-                        yaxis_tickformat=".0%",
-                        xaxis_title="",
-                        yaxis_title="",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        xaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-                        yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-                        hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
-                    )
-                    st.plotly_chart(fig_trend, use_container_width=True, key=f"fig_trend_{market_key}")
+    market_key = f"{key_prefix}_{market_id}"
+    history = repo.get_market_history(market_id)
 
-                with hist_right:
-                    # Price History Chart
-                    fig_price = go.Figure()
-                    fig_price.add_trace(go.Scatter(
-                        x=timestamps,
-                        y=yes_prices,
-                        mode='lines+markers',
-                        name='YES',
-                        line=dict(color='#00C076', width=2),
-                        marker=dict(size=6),
-                        customdata=list(zip(date_labels, [f"${p:.2f}" for p in yes_prices])),
-                        hovertemplate='%{customdata[0]}<br>Price = %{customdata[1]}<extra></extra>'
-                    ))
-                    fig_price.add_trace(go.Scatter(
-                        x=timestamps,
-                        y=no_prices,
-                        mode='lines+markers',
-                        name='NO',
-                        line=dict(color='#FF4F4F', width=2),
-                        marker=dict(size=6),
-                        customdata=list(zip(date_labels, [f"${p:.2f}" for p in no_prices])),
-                        hovertemplate='%{customdata[0]}<br>Price = %{customdata[1]}<extra></extra>'
-                    ))
-                    fig_price.update_layout(
-                        title="Price History",
-                        template="plotly_dark",
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        height=220,
-                        margin=dict(l=20, r=20, t=40, b=20),
-                        yaxis_tickformat="$.2f",
-                        yaxis_range=[0, 1],
-                        xaxis_title="",
-                        yaxis_title="",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        xaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-                        yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-                        hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
-                    )
-                    st.plotly_chart(fig_price, use_container_width=True, key=f"fig_price_{market_key}")
-            else:
-                st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
-                st.caption("📈 Trend data available after multiple scans")
+    if len(history) < 2:
+        st.caption("📈 Trend data available after multiple scans")
+        return
+
+    # Sort by scanned_at ascending for chronological order
+    history = sorted(history, key=lambda x: x.get("scanned_at", 0))
+
+    timestamps = [datetime.fromtimestamp(h.get("scanned_at", 0)) for h in history]
+    date_labels = [t.strftime("%d/%m") for t in timestamps]
+    yes_prof = [h.get("yes_profitable_pct", 0) for h in history]
+    no_prof = [h.get("no_profitable_pct", 0) for h in history]
+    yes_prices = [h.get("current_yes_price", 0) for h in history]
+    no_prices = [h.get("current_no_price", 0) for h in history]
+    yes_counts = [h.get("yes_top_n_count", 0) or 0 for h in history]
+    no_counts = [h.get("no_top_n_count", 0) or 0 for h in history]
+
+    # Side by side layout
+    hist_left, hist_right = st.columns(2)
+
+    with hist_left:
+        fig_trend = go.Figure()
+        fig_trend.add_trace(go.Scatter(
+            x=timestamps, y=yes_prof,
+            mode='lines+markers', name='YES',
+            line=dict(color='#00C076', width=2),
+            marker=dict(size=6),
+            customdata=list(zip(date_labels, yes_counts)),
+            hovertemplate='%{customdata[0]}<br>N = %{customdata[1]}<extra></extra>'
+        ))
+        fig_trend.add_trace(go.Scatter(
+            x=timestamps, y=no_prof,
+            mode='lines+markers', name='NO',
+            line=dict(color='#FF4F4F', width=2),
+            marker=dict(size=6),
+            customdata=list(zip(date_labels, no_counts)),
+            hovertemplate='%{customdata[0]}<br>N = %{customdata[1]}<extra></extra>'
+        ))
+        fig_trend.add_hline(y=IMBALANCE_THRESHOLD, line_dash="dot", line_color="orange", annotation_text=f"{IMBALANCE_THRESHOLD:.0%}")
+        fig_trend.update_layout(
+            title="Profitability Trend",
+            template="plotly_dark",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=200,
+            margin=dict(l=20, r=20, t=40, b=20),
+            yaxis_tickformat=".0%",
+            xaxis_title="", yaxis_title="",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
+        )
+        st.plotly_chart(fig_trend, use_container_width=True, key=f"fig_trend_{market_key}")
+
+    with hist_right:
+        fig_price = go.Figure()
+        fig_price.add_trace(go.Scatter(
+            x=timestamps, y=yes_prices,
+            mode='lines+markers', name='YES',
+            line=dict(color='#00C076', width=2),
+            marker=dict(size=6),
+            customdata=list(zip(date_labels, [f"${p:.2f}" for p in yes_prices])),
+            hovertemplate='%{customdata[0]}<br>Price = %{customdata[1]}<extra></extra>'
+        ))
+        fig_price.add_trace(go.Scatter(
+            x=timestamps, y=no_prices,
+            mode='lines+markers', name='NO',
+            line=dict(color='#FF4F4F', width=2),
+            marker=dict(size=6),
+            customdata=list(zip(date_labels, [f"${p:.2f}" for p in no_prices])),
+            hovertemplate='%{customdata[0]}<br>Price = %{customdata[1]}<extra></extra>'
+        ))
+        fig_price.update_layout(
+            title="Price History",
+            template="plotly_dark",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=200,
+            margin=dict(l=20, r=20, t=40, b=20),
+            yaxis_tickformat="$.2f",
+            yaxis_range=[0, 1],
+            xaxis_title="", yaxis_title="",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
+        )
+        st.plotly_chart(fig_price, use_container_width=True, key=f"fig_price_{market_key}")
 
 
 def render_dashboard(repo):
@@ -1479,6 +1489,11 @@ def _render_market_list_and_detail(df, repo, is_search=False):
             render_market_detail_view(selected_data, repo=repo, key_prefix="all")
         else:
             st.info("Select a market to view analysis.")
+
+    # Historical Charts - Below the split layout (full width)
+    if selected_data is not None:
+        st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
+        render_historical_charts(selected_data, repo, key_prefix="all")
 
 
 def main():
