@@ -147,6 +147,18 @@ async def run_scan(
                             f"({scan_result.flagged_side} side: {scan_result.profitable_skew_yes if scan_result.flagged_side == 'YES' else scan_result.profitable_skew_no:.1%} profitable)"
                         )
 
+                        # Create backtest snapshot for tracking accuracy
+                        edge_pct = abs(scan_result.profitable_skew_yes - scan_result.profitable_skew_no) * 100
+                        price_at_flag = market.yes_price if scan_result.flagged_side == "YES" else market.no_price
+                        repo.create_backtest_snapshot(
+                            market_id=market.market_id,
+                            scan_result_id=None,  # Will be linked later
+                            flagged_side=scan_result.flagged_side,
+                            edge_pct=edge_pct,
+                            price_at_flag=price_at_flag,
+                            flagged_at=scan_result.scanned_at,
+                        )
+
                 # Update session progress every batch
                 repo.update_session_progress(session_id, scanned_count, flagged_count)
                 

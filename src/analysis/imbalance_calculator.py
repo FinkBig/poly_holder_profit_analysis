@@ -17,6 +17,53 @@ class ImbalanceCalculator:
     def __init__(self, threshold: float = IMBALANCE_THRESHOLD):
         self.threshold = threshold
 
+    def _calculate_data_quality(
+        self,
+        known_count: int,
+        total_analyzed: int,
+        avg_overall: Optional[float],
+        avg_realized: Optional[float],
+    ) -> float:
+        """
+        Calculate data quality score (0-100) based on:
+        - % of holders with PNL data (known ratio)
+        - Sample size (out of 20 max)
+        - Agreement between cash/realized PNL metrics (if both available)
+        """
+        if total_analyzed == 0:
+            return 0.0
+
+        score = 0.0
+
+        # Component 1: Known data ratio (50 points max)
+        # Higher % of known holders = better quality
+        known_ratio = known_count / total_analyzed
+        score += known_ratio * 50
+
+        # Component 2: Sample size (30 points max)
+        # 20+ holders = full points, scales down from there
+        sample_score = min(total_analyzed / 20, 1.0) * 30
+        score += sample_score
+
+        # Component 3: PNL metric agreement (20 points max)
+        # If both cash and realized PNL available, check if they agree directionally
+        if avg_overall is not None and avg_realized is not None:
+            # Both positive or both negative = agree
+            if (avg_overall > 0 and avg_realized > 0) or (avg_overall <= 0 and avg_realized <= 0):
+                score += 20
+            else:
+                # Disagreement - partial credit based on magnitude
+                # If one is close to zero, still give partial credit
+                if abs(avg_realized) < 1000:  # Small realized PNL is common
+                    score += 15
+                else:
+                    score += 5
+        elif avg_overall is not None:
+            # Only cash PNL available - give partial credit
+            score += 10
+
+        return min(score, 100.0)
+
     def analyze_side(
         self,
         holders: List[MarketHolder],
@@ -74,12 +121,22 @@ class ImbalanceCalculator:
 
         # Average PNL calculations
         overall_pnls = [h.overall_pnl for h in holders if h.overall_pnl is not None]
+        realized_pnls = [h.realized_pnl for h in holders if h.realized_pnl is not None]
         pnl_30ds = [h.pnl_30d for h in holders if h.pnl_30d is not None]
 
         avg_overall = sum(overall_pnls) / len(overall_pnls) if overall_pnls else None
+        avg_realized = sum(realized_pnls) / len(realized_pnls) if realized_pnls else None
         avg_30d = sum(pnl_30ds) / len(pnl_30ds) if pnl_30ds else None
 
         total_position = sum(h.amount for h in holders)
+
+        # Calculate data quality score (0-100)
+        data_quality_score = self._calculate_data_quality(
+            known_count=known_count,
+            total_analyzed=len(holders),
+            avg_overall=avg_overall,
+            avg_realized=avg_realized,
+        )
 
         return SideAnalysis(
             side=side_name,
@@ -92,8 +149,10 @@ class ImbalanceCalculator:
             profitable_pct=profitable_pct,
             unknown_pct=unknown_pct,
             avg_overall_pnl=avg_overall,
+            avg_realized_pnl=avg_realized,
             avg_30d_pnl=avg_30d,
             total_position_size=total_position,
+            data_quality_score=data_quality_score,
         )
 
     def calculate_imbalance(

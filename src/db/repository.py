@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from datetime import datetime
 
-from .schema import get_connection, init_database
+from .schema import get_connection, init_database, run_migrations
 from ..models.market import ActiveMarket
 from ..models.scan_result import ImbalanceScanResult
 
@@ -17,6 +17,8 @@ class ScannerRepository:
         self.db_path = db_path
         if not Path(db_path).exists():
             init_database(db_path)
+        # Run migrations for schema updates
+        run_migrations(db_path)
         # Ensure trades table exists (for existing databases)
         self._ensure_trades_table()
 
@@ -130,12 +132,13 @@ class ScannerRepository:
             conn.execute(
                 """
                 INSERT INTO markets
-                (market_id, condition_id, question, slug, token_id_yes, token_id_no, end_date, first_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (market_id, condition_id, question, slug, token_id_yes, token_id_no, end_date, category, first_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(market_id) DO UPDATE SET
                     question = excluded.question,
                     slug = excluded.slug,
                     end_date = excluded.end_date,
+                    category = excluded.category,
                     last_scanned_at = ?
                 """,
                 (
@@ -146,11 +149,27 @@ class ScannerRepository:
                     market.token_id_yes,
                     market.token_id_no,
                     market.end_date.isoformat() if market.end_date else None,
+                    market.category,
                     market.fetched_at,
                     int(datetime.now().timestamp()),
                 ),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def get_unique_categories(self) -> List[str]:
+        """Get all unique categories from markets table."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT category FROM markets
+                WHERE category IS NOT NULL AND category != ''
+                ORDER BY category
+                """
+            ).fetchall()
+            return [row[0] for row in rows]
         finally:
             conn.close()
 
@@ -169,14 +188,14 @@ class ScannerRepository:
                     yes_total_holders, yes_top_n_count, yes_top_50_pct_count,
                     yes_profitable_count, yes_losing_count, yes_unknown_count,
                     yes_profitable_pct, yes_unknown_pct,
-                    yes_avg_overall_pnl, yes_avg_30d_pnl, yes_position_size,
+                    yes_avg_overall_pnl, yes_avg_realized_pnl, yes_avg_30d_pnl, yes_position_size, yes_data_quality_score,
                     no_total_holders, no_top_n_count, no_top_50_pct_count,
                     no_profitable_count, no_losing_count, no_unknown_count,
                     no_profitable_pct, no_unknown_pct,
-                    no_avg_overall_pnl, no_avg_30d_pnl, no_position_size,
+                    no_avg_overall_pnl, no_avg_realized_pnl, no_avg_30d_pnl, no_position_size, no_data_quality_score,
                     current_yes_price, current_no_price, volume, liquidity,
                     scanned_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -195,8 +214,10 @@ class ScannerRepository:
                     result.yes_analysis.profitable_pct,
                     result.yes_analysis.unknown_pct,
                     result.yes_analysis.avg_overall_pnl,
+                    result.yes_analysis.avg_realized_pnl,
                     result.yes_analysis.avg_30d_pnl,
                     result.yes_analysis.total_position_size,
+                    result.yes_analysis.data_quality_score,
                     result.no_analysis.total_holders,
                     result.no_analysis.top_n_count,
                     result.no_analysis.top_50_pct_count,
@@ -206,8 +227,10 @@ class ScannerRepository:
                     result.no_analysis.profitable_pct,
                     result.no_analysis.unknown_pct,
                     result.no_analysis.avg_overall_pnl,
+                    result.no_analysis.avg_realized_pnl,
                     result.no_analysis.avg_30d_pnl,
                     result.no_analysis.total_position_size,
+                    result.no_analysis.data_quality_score,
                     result.current_yes_price,
                     result.current_no_price,
                     result.volume,
@@ -221,13 +244,13 @@ class ScannerRepository:
             conn.close()
 
     def get_flagged_results(
-        self, session_id: Optional[int] = None, limit: int = 100
+        self, session_id: Optional[int] = None, limit: int = 100, category: Optional[str] = None
     ) -> List[Dict]:
         """Get flagged scan results."""
         conn = self._get_conn()
         try:
             query = """
-                SELECT r.*, m.question, m.slug, m.end_date, m.condition_id
+                SELECT r.*, m.question, m.slug, m.end_date, m.condition_id, m.category
                 FROM scan_results r
                 JOIN markets m ON r.market_id = m.market_id
                 WHERE r.is_flagged = 1
@@ -238,6 +261,10 @@ class ScannerRepository:
                 query += " AND r.session_id = ?"
                 params.append(session_id)
 
+            if category:
+                query += " AND m.category = ?"
+                params.append(category)
+
             query += " ORDER BY r.imbalance_score DESC LIMIT ?"
             params.append(limit)
 
@@ -247,21 +274,29 @@ class ScannerRepository:
             conn.close()
 
     def get_all_results(
-        self, session_id: Optional[int] = None, limit: int = 500
+        self, session_id: Optional[int] = None, limit: int = 500, category: Optional[str] = None
     ) -> List[Dict]:
         """Get all scan results (flagged and non-flagged)."""
         conn = self._get_conn()
         try:
             query = """
-                SELECT r.*, m.question, m.slug, m.end_date, m.condition_id
+                SELECT r.*, m.question, m.slug, m.end_date, m.condition_id, m.category
                 FROM scan_results r
                 JOIN markets m ON r.market_id = m.market_id
             """
             params = []
+            conditions = []
 
             if session_id:
-                query += " WHERE r.session_id = ?"
+                conditions.append("r.session_id = ?")
                 params.append(session_id)
+
+            if category:
+                conditions.append("m.category = ?")
+                params.append(category)
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
 
             query += " ORDER BY r.imbalance_score DESC LIMIT ?"
             params.append(limit)
@@ -630,6 +665,500 @@ class ScannerRepository:
                 LEFT JOIN markets m ON t.market_id = m.market_id
                 WHERE t.outcome = 'pending'
                 ORDER BY t.entry_date DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    # ==================== Watched Markets (Live Monitoring) ====================
+
+    def add_watched_market(
+        self,
+        market_id: str,
+        condition_id: str,
+        token_id_yes: Optional[str] = None,
+        token_id_no: Optional[str] = None,
+    ) -> None:
+        """Add a market to the watch list."""
+        conn = self._get_conn()
+        try:
+            now = int(datetime.now().timestamp())
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO watched_markets
+                (market_id, condition_id, token_id_yes, token_id_no, added_at, last_refreshed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (market_id, condition_id, token_id_yes, token_id_no, now, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def remove_watched_market(self, market_id: str) -> None:
+        """Remove a market from the watch list."""
+        conn = self._get_conn()
+        try:
+            conn.execute("DELETE FROM watched_markets WHERE market_id = ?", (market_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_watched_markets(self) -> List[Dict]:
+        """Get all watched markets with their market details."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT w.*, m.question, m.slug, m.end_date, m.category
+                FROM watched_markets w
+                LEFT JOIN markets m ON w.market_id = m.market_id
+                ORDER BY w.added_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def is_market_watched(self, market_id: str) -> bool:
+        """Check if a market is in the watch list."""
+        conn = self._get_conn()
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM watched_markets WHERE market_id = ?", (market_id,)
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+
+    def update_watched_market_refresh(self, market_id: str) -> None:
+        """Update the last_refreshed_at timestamp for a watched market."""
+        conn = self._get_conn()
+        try:
+            now = int(datetime.now().timestamp())
+            conn.execute(
+                "UPDATE watched_markets SET last_refreshed_at = ? WHERE market_id = ?",
+                (now, market_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_top_flagged_for_monitoring(self, session_id: int, limit: int = 10) -> List[Dict]:
+        """Get top N flagged markets for live monitoring auto-refresh."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT r.*, m.question, m.slug, m.end_date, m.condition_id, m.token_id_yes, m.token_id_no, m.category
+                FROM scan_results r
+                JOIN markets m ON r.market_id = m.market_id
+                WHERE r.session_id = ? AND r.is_flagged = 1
+                ORDER BY r.imbalance_score DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    # ==================== Alert System ====================
+
+    def create_alert_config(
+        self,
+        market_id: str,
+        alert_type: str,
+        threshold_value: Optional[float] = None,
+    ) -> int:
+        """Create an alert configuration. Returns config ID."""
+        conn = self._get_conn()
+        try:
+            now = int(datetime.now().timestamp())
+            cursor = conn.execute(
+                """
+                INSERT INTO alert_configs (market_id, alert_type, threshold_value, enabled, created_at)
+                VALUES (?, ?, ?, 1, ?)
+                """,
+                (market_id, alert_type, threshold_value, now),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def get_alert_configs_for_market(self, market_id: str) -> List[Dict]:
+        """Get all alert configs for a specific market."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM alert_configs
+                WHERE market_id = ?
+                ORDER BY created_at DESC
+                """,
+                (market_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_all_enabled_alert_configs(self) -> List[Dict]:
+        """Get all enabled alert configurations with market details."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT ac.*, m.question, m.slug
+                FROM alert_configs ac
+                JOIN markets m ON ac.market_id = m.market_id
+                WHERE ac.enabled = 1
+                ORDER BY ac.created_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def update_alert_config(self, config_id: int, enabled: bool) -> None:
+        """Enable or disable an alert config."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE alert_configs SET enabled = ? WHERE id = ?",
+                (1 if enabled else 0, config_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def delete_alert_config(self, config_id: int) -> None:
+        """Delete an alert configuration."""
+        conn = self._get_conn()
+        try:
+            conn.execute("DELETE FROM alert_configs WHERE id = ?", (config_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def create_alert(
+        self,
+        market_id: str,
+        alert_type: str,
+        old_value: float,
+        new_value: float,
+        message: str,
+    ) -> int:
+        """Create a triggered alert. Returns alert ID."""
+        conn = self._get_conn()
+        try:
+            now = int(datetime.now().timestamp())
+            cursor = conn.execute(
+                """
+                INSERT INTO alerts (market_id, alert_type, old_value, new_value, triggered_at, acknowledged, message)
+                VALUES (?, ?, ?, ?, ?, 0, ?)
+                """,
+                (market_id, alert_type, old_value, new_value, now, message),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def get_unacknowledged_alerts(self, limit: int = 50) -> List[Dict]:
+        """Get all unacknowledged alerts with market details."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT a.*, m.question, m.slug
+                FROM alerts a
+                JOIN markets m ON a.market_id = m.market_id
+                WHERE a.acknowledged = 0
+                ORDER BY a.triggered_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def acknowledge_alert(self, alert_id: int) -> None:
+        """Mark an alert as acknowledged."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE alerts SET acknowledged = 1 WHERE id = ?", (alert_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def acknowledge_all_alerts(self) -> None:
+        """Mark all alerts as acknowledged."""
+        conn = self._get_conn()
+        try:
+            conn.execute("UPDATE alerts SET acknowledged = 1")
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_recent_alerts(self, limit: int = 100) -> List[Dict]:
+        """Get recent alerts (both acknowledged and unacknowledged)."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT a.*, m.question, m.slug
+                FROM alerts a
+                JOIN markets m ON a.market_id = m.market_id
+                ORDER BY a.triggered_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_alert_count(self, unacknowledged_only: bool = True) -> int:
+        """Get count of alerts."""
+        conn = self._get_conn()
+        try:
+            if unacknowledged_only:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM alerts WHERE acknowledged = 0"
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()
+            return row[0] if row else 0
+        finally:
+            conn.close()
+
+    # ==================== Backtesting ====================
+
+    def create_backtest_snapshot(
+        self,
+        market_id: str,
+        scan_result_id: Optional[int],
+        flagged_side: str,
+        edge_pct: float,
+        price_at_flag: float,
+        flagged_at: int,
+    ) -> int:
+        """Create a backtest snapshot for a flagged market. Returns snapshot ID."""
+        conn = self._get_conn()
+        try:
+            # Check if snapshot already exists for this market
+            existing = conn.execute(
+                "SELECT id FROM backtest_snapshots WHERE market_id = ?",
+                (market_id,)
+            ).fetchone()
+            if existing:
+                return existing[0]
+
+            cursor = conn.execute(
+                """
+                INSERT INTO backtest_snapshots
+                (market_id, scan_result_id, flagged_side, edge_pct, price_at_flag, flagged_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (market_id, scan_result_id, flagged_side, edge_pct, price_at_flag, flagged_at),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def update_backtest_resolution(
+        self,
+        market_id: str,
+        resolved_outcome: str,
+        resolved_at: int,
+    ) -> None:
+        """Update backtest snapshot with resolution outcome."""
+        conn = self._get_conn()
+        try:
+            # Get snapshot data
+            snapshot = conn.execute(
+                "SELECT flagged_side, price_at_flag FROM backtest_snapshots WHERE market_id = ?",
+                (market_id,)
+            ).fetchone()
+
+            if not snapshot:
+                return
+
+            flagged_side, price_at_flag = snapshot
+            predicted_correct = 1 if flagged_side == resolved_outcome else 0
+
+            # Calculate theoretical PNL (assuming 1 unit bet)
+            if price_at_flag:
+                if predicted_correct:
+                    theoretical_pnl = (1 - price_at_flag)  # Win: payout - cost
+                else:
+                    theoretical_pnl = -price_at_flag  # Loss: lose the cost
+            else:
+                theoretical_pnl = None
+
+            conn.execute(
+                """
+                UPDATE backtest_snapshots
+                SET resolved_outcome = ?, resolved_at = ?, predicted_correct = ?, theoretical_pnl = ?
+                WHERE market_id = ?
+                """,
+                (resolved_outcome, resolved_at, predicted_correct, theoretical_pnl, market_id),
+            )
+
+            # Also update markets table
+            conn.execute(
+                "UPDATE markets SET resolved_outcome = ?, resolved_at = ? WHERE market_id = ?",
+                (resolved_outcome, resolved_at, market_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_backtest_stats(self) -> Dict:
+        """Get overall backtest accuracy statistics."""
+        conn = self._get_conn()
+        try:
+            # Total snapshots
+            total = conn.execute("SELECT COUNT(*) FROM backtest_snapshots").fetchone()[0]
+
+            # Resolved snapshots
+            resolved = conn.execute(
+                "SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NOT NULL"
+            ).fetchone()[0]
+
+            # Correct predictions
+            correct = conn.execute(
+                "SELECT COUNT(*) FROM backtest_snapshots WHERE predicted_correct = 1"
+            ).fetchone()[0]
+
+            # Total theoretical PNL
+            pnl_row = conn.execute(
+                "SELECT SUM(theoretical_pnl) FROM backtest_snapshots WHERE theoretical_pnl IS NOT NULL"
+            ).fetchone()
+            total_pnl = pnl_row[0] if pnl_row[0] else 0
+
+            accuracy = correct / resolved if resolved > 0 else 0
+
+            return {
+                "total_flagged": total,
+                "resolved": resolved,
+                "pending": total - resolved,
+                "correct": correct,
+                "incorrect": resolved - correct,
+                "accuracy": accuracy,
+                "total_pnl": total_pnl,
+            }
+        finally:
+            conn.close()
+
+    def get_backtest_by_edge_level(self) -> List[Dict]:
+        """Get accuracy breakdown by edge level at flag time."""
+        conn = self._get_conn()
+        try:
+            buckets = [
+                (60, 65),
+                (65, 70),
+                (70, 75),
+                (75, 80),
+                (80, 100),
+            ]
+            results = []
+            for low, high in buckets:
+                row = conn.execute(
+                    """
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN predicted_correct = 1 THEN 1 ELSE 0 END) as correct,
+                        SUM(theoretical_pnl) as pnl
+                    FROM backtest_snapshots
+                    WHERE edge_pct >= ? AND edge_pct < ?
+                    AND resolved_outcome IS NOT NULL
+                    """,
+                    (low, high),
+                ).fetchone()
+                total, correct, pnl = row
+                accuracy = correct / total if total > 0 else 0
+                results.append({
+                    "edge_range": f"{low}-{high}%",
+                    "total": total or 0,
+                    "correct": correct or 0,
+                    "accuracy": accuracy,
+                    "pnl": pnl or 0,
+                })
+            return results
+        finally:
+            conn.close()
+
+    def get_backtest_by_category(self) -> List[Dict]:
+        """Get accuracy breakdown by market category."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    m.category,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN b.predicted_correct = 1 THEN 1 ELSE 0 END) as correct,
+                    SUM(b.theoretical_pnl) as pnl
+                FROM backtest_snapshots b
+                JOIN markets m ON b.market_id = m.market_id
+                WHERE b.resolved_outcome IS NOT NULL
+                AND m.category IS NOT NULL
+                GROUP BY m.category
+                ORDER BY total DESC
+                """
+            ).fetchall()
+
+            results = []
+            for row in rows:
+                cat, total, correct, pnl = row
+                accuracy = correct / total if total > 0 else 0
+                results.append({
+                    "category": cat,
+                    "total": total,
+                    "correct": correct,
+                    "accuracy": accuracy,
+                    "pnl": pnl or 0,
+                })
+            return results
+        finally:
+            conn.close()
+
+    def get_backtest_snapshots(self, limit: int = 100, resolved_only: bool = False) -> List[Dict]:
+        """Get backtest snapshots with market details."""
+        conn = self._get_conn()
+        try:
+            query = """
+                SELECT b.*, m.question, m.slug, m.category
+                FROM backtest_snapshots b
+                JOIN markets m ON b.market_id = m.market_id
+            """
+            if resolved_only:
+                query += " WHERE b.resolved_outcome IS NOT NULL"
+            query += " ORDER BY b.flagged_at DESC LIMIT ?"
+
+            rows = conn.execute(query, (limit,)).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_unresolved_flagged_markets(self) -> List[Dict]:
+        """Get flagged markets that haven't been resolved yet (for resolution checking)."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT b.market_id, m.condition_id, m.question
+                FROM backtest_snapshots b
+                JOIN markets m ON b.market_id = m.market_id
+                WHERE b.resolved_outcome IS NULL
+                ORDER BY b.flagged_at ASC
                 """
             ).fetchall()
             return [dict(row) for row in rows]

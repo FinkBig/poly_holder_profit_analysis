@@ -177,6 +177,7 @@ class LeaderboardFetcher:
 
                 if result and result.get("total_pnl") is not None:
                     holder.overall_pnl = result["total_pnl"]
+                    holder.realized_pnl = result.get("realized_pnl")
                     holder.is_on_leaderboard = True
                     found_count += 1
 

@@ -24,6 +24,7 @@ class ActiveMarket:
     no_price: float = 0.5
 
     end_date: Optional[datetime] = None
+    category: Optional[str] = None
     fetched_at: int = field(default_factory=lambda: int(datetime.now().timestamp()))
 
     @property
@@ -72,6 +73,7 @@ class ActiveMarket:
             "yes_price": self.yes_price,
             "no_price": self.no_price,
             "end_date": self.end_date.isoformat() if self.end_date else None,
+            "category": self.category,
             "fetched_at": self.fetched_at,
         }
 
@@ -92,5 +94,6 @@ class ActiveMarket:
             end_date=(
                 datetime.fromisoformat(data["end_date"]) if data.get("end_date") else None
             ),
+            category=data.get("category"),
             fetched_at=data.get("fetched_at", 0),
         )

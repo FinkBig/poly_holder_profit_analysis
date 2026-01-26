@@ -111,13 +111,16 @@ class ActiveMarketFetcher:
                 if time_to_expiry.total_seconds() > self.max_days_to_expiry * 24 * 3600:
                     return None  # Skip far-out markets
 
-            # Determine slug (prefer event slug if available)
+            # Determine slug and category (prefer event data if available)
             slug = raw.get("slug", "")
+            category = None
             events = raw.get("events", [])
             if events and isinstance(events, list) and len(events) > 0:
                 event_slug = events[0].get("slug")
                 if event_slug:
                     slug = event_slug
+                # Extract category from event
+                category = events[0].get("category")
 
             return ActiveMarket(
                 market_id=raw.get("id", ""),
@@ -131,6 +134,7 @@ class ActiveMarketFetcher:
                 yes_price=yes_price,
                 no_price=no_price,
                 end_date=end_date,
+                category=category,
             )
         except Exception as e:
             logger.warning(f"Failed to parse market: {e}")

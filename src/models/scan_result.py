@@ -26,11 +26,15 @@ class SideAnalysis:
     unknown_pct: float  # % unknown wallets (of total analyzed)
 
     # Average PNL
-    avg_overall_pnl: Optional[float]  # Avg all-time PNL
-    avg_30d_pnl: Optional[float]  # Avg 30-day PNL
+    avg_overall_pnl: Optional[float]  # Avg all-time PNL (cashPnl)
+    avg_realized_pnl: Optional[float] = None  # Avg realized PNL only
+    avg_30d_pnl: Optional[float] = None  # Avg 30-day PNL
 
     # Total position value
-    total_position_size: float  # Sum of holdings (shares)
+    total_position_size: float = 0.0  # Sum of holdings (shares)
+
+    # Data quality metrics
+    data_quality_score: float = 0.0  # 0-100 quality score
 
 
 @dataclass
@@ -85,8 +89,10 @@ class ImbalanceScanResult:
                 "profitable_pct": self.yes_analysis.profitable_pct,
                 "unknown_pct": self.yes_analysis.unknown_pct,
                 "avg_overall_pnl": self.yes_analysis.avg_overall_pnl,
+                "avg_realized_pnl": self.yes_analysis.avg_realized_pnl,
                 "avg_30d_pnl": self.yes_analysis.avg_30d_pnl,
                 "total_position_size": self.yes_analysis.total_position_size,
+                "data_quality_score": self.yes_analysis.data_quality_score,
             },
             "no_analysis": {
                 "side": self.no_analysis.side,
@@ -99,8 +105,10 @@ class ImbalanceScanResult:
                 "profitable_pct": self.no_analysis.profitable_pct,
                 "unknown_pct": self.no_analysis.unknown_pct,
                 "avg_overall_pnl": self.no_analysis.avg_overall_pnl,
+                "avg_realized_pnl": self.no_analysis.avg_realized_pnl,
                 "avg_30d_pnl": self.no_analysis.avg_30d_pnl,
                 "total_position_size": self.no_analysis.total_position_size,
+                "data_quality_score": self.no_analysis.data_quality_score,
             },
             "profitable_skew_yes": self.profitable_skew_yes,
             "profitable_skew_no": self.profitable_skew_no,

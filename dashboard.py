@@ -377,7 +377,25 @@ def render_copy_button(text, key):
 
 def render_opportunities_tab(repo):
     """Render the Top 20 Opportunities view with actionable trading info."""
-    st.markdown("<div class='terminal-header'>TOP TRADING OPPORTUNITIES</div>", unsafe_allow_html=True)
+    # Live monitor status
+    live_mode = st.session_state.get("live_monitor_mode", "Off")
+    refresh_interval = st.session_state.get("live_refresh_interval", 60)
+
+    header_col1, header_col2 = st.columns([3, 1])
+    with header_col1:
+        st.markdown("<div class='terminal-header'>TOP TRADING OPPORTUNITIES</div>", unsafe_allow_html=True)
+    with header_col2:
+        if live_mode != "Off":
+            # Show live indicator
+            last_refresh = st.session_state.get("last_live_refresh", 0)
+            now = int(datetime.now().timestamp())
+            seconds_ago = now - last_refresh if last_refresh else 0
+            st.markdown(f"<div style='text-align:right;color:#00C076;'>🔴 LIVE • Updated {seconds_ago}s ago</div>", unsafe_allow_html=True)
+
+            # Auto-refresh logic
+            if seconds_ago >= refresh_interval:
+                st.session_state["last_live_refresh"] = now
+                st.rerun()
 
     # Get filter values from session state
     max_days = st.session_state.get("filter_max_days", 14)
@@ -385,6 +403,8 @@ def render_opportunities_tab(repo):
     min_liquidity = st.session_state.get("filter_min_liquidity", 1000)
     min_price = st.session_state.get("filter_min_price", 0.10)
     max_price = st.session_state.get("filter_max_price", 0.90)
+    filter_category = st.session_state.get("filter_category", "All Categories")
+    category_filter = None if filter_category == "All Categories" else filter_category
 
     # Get score weights from session state
     weights = {
@@ -400,10 +420,16 @@ def render_opportunities_tab(repo):
         st.info("No scan data available. Run a scan first.")
         return
 
-    results = repo.get_flagged_results(session_id=latest_session, limit=500)
+    results = repo.get_flagged_results(session_id=latest_session, limit=500, category=category_filter)
     if not results:
-        st.info("No flagged opportunities found in latest scan.")
+        if category_filter:
+            st.info(f"No flagged opportunities found for category '{category_filter}'.")
+        else:
+            st.info("No flagged opportunities found in latest scan.")
         return
+
+    # Get watched market IDs for indicator
+    watched_ids = set(m["market_id"] for m in repo.get_watched_markets())
 
     # Process and score opportunities
     opportunities = []
@@ -464,7 +490,8 @@ def render_opportunities_tab(repo):
             "no_price": no_price,
             "url": url,
             "market_id": r.get("market_id"),
-            "raw_data": r
+            "raw_data": r,
+            "is_watched": r.get("market_id") in watched_ids,
         })
 
     # Sort by score and take top 20
@@ -493,7 +520,10 @@ def render_opportunities_tab(repo):
             use_container_width=True
         )
     with col_info:
-        st.caption(f"Showing top {len(opportunities)} opportunities • Edge ≥{min_edge}% • Expires ≤{max_days}d")
+        filter_desc = f"Showing top {len(opportunities)} opportunities • Edge ≥{min_edge}% • Expires ≤{max_days}d"
+        if category_filter:
+            filter_desc += f" • Category: {category_filter}"
+        st.caption(filter_desc)
 
     st.markdown("---")
 
@@ -530,7 +560,8 @@ def render_opportunities_tab(repo):
                     st.markdown(f"**{opp['rank']}**")
 
                 with c_market:
-                    market_name = opp['question'][:42] + "..." if len(opp['question']) > 42 else opp['question']
+                    watch_icon = "👁 " if opp.get('is_watched') else ""
+                    market_name = watch_icon + (opp['question'][:40] + "..." if len(opp['question']) > 40 else opp['question'])
                     if st.button(
                         market_name,
                         key=f"opp_market_{opp['rank']}",
@@ -588,18 +619,138 @@ def render_opportunities_tab(repo):
         render_historical_charts(selected_data, repo, key_prefix="opp")
 
 
-def render_portfolio_tab(repo):
-    """Render the Portfolio tab with trade tracking and analytics."""
-    st.markdown("<div class='terminal-header'>PORTFOLIO TRACKER</div>", unsafe_allow_html=True)
+def render_backtesting_tab(repo):
+    """Render the Backtesting tab with performance analysis."""
+    st.markdown("<div class='terminal-header'>SCANNER PERFORMANCE ANALYSIS</div>", unsafe_allow_html=True)
 
-    # Portfolio Stats Row
-    stats = repo.get_portfolio_stats()
+    # Backtest Stats Row
+    stats = repo.get_backtest_stats()
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Open Trades", stats["open"])
-    col2.metric("Total Trades", stats["total"])
-    col3.metric("Win Rate", f"{stats['win_rate']:.1%}" if stats["wins"] + stats["losses"] > 0 else "N/A")
-    col4.metric("W/L", f"{stats['wins']}/{stats['losses']}")
-    col5.metric("Total PNL", f"${stats['total_pnl']:.2f}")
+    col1.metric("Total Flagged", stats["total_flagged"])
+    col2.metric("Resolved", stats["resolved"])
+    col3.metric("Accuracy", f"{stats['accuracy']:.1%}" if stats["resolved"] > 0 else "N/A")
+    col4.metric("Correct/Wrong", f"{stats['correct']}/{stats['incorrect']}")
+    col5.metric("Theoretical PNL", f"${stats['total_pnl']:.2f}")
+
+    st.markdown("---")
+
+    # Info about how backtesting works
+    with st.expander("How Backtesting Works", expanded=False):
+        st.markdown("""
+        **Automatic Tracking:**
+        - Every flagged market is automatically recorded with its edge % and price
+        - Run `python scripts/resolve_markets.py` to check for resolutions
+        - Accuracy is calculated as: flagged_side == resolved_outcome
+
+        **Theoretical PNL:**
+        - Assumes 1 unit bet at the flagged price
+        - Win: (1 - entry_price), Loss: -entry_price
+        """)
+
+
+def render_portfolio_tab(repo):
+    """Render the Portfolio tab with trade tracking and analytics (legacy, now shows backtesting)."""
+    render_backtesting_tab(repo)
+
+    st.markdown("---")
+    st.markdown("### 📈 Performance by Edge Level")
+
+    # Edge level breakdown
+    edge_data = repo.get_backtest_by_edge_level()
+    edge_with_data = [e for e in edge_data if e["total"] > 0]
+
+    if edge_with_data:
+        fig_edge = go.Figure()
+        fig_edge.add_trace(go.Bar(
+            x=[e["edge_range"] for e in edge_with_data],
+            y=[e["accuracy"] for e in edge_with_data],
+            marker_color="#3B82F6",
+            text=[f"{e['accuracy']:.0%} ({e['correct']}/{e['total']})" for e in edge_with_data],
+            textposition='auto',
+        ))
+        fig_edge.update_layout(
+            title="Does Higher Edge = Higher Accuracy?",
+            template="plotly_dark",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20),
+            yaxis_tickformat=".0%",
+            yaxis_title="Accuracy",
+            xaxis_title="Edge at Flag Time",
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            xaxis=dict(showgrid=False, zeroline=False),
+            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
+        )
+        st.plotly_chart(fig_edge, use_container_width=True)
+    else:
+        st.info("No resolved predictions yet. Run resolve_markets.py after markets settle.")
+
+    # Category breakdown
+    st.markdown("### 📊 Performance by Category")
+    cat_data = repo.get_backtest_by_category()
+
+    if cat_data:
+        fig_cat = go.Figure()
+        fig_cat.add_trace(go.Bar(
+            x=[c["category"] for c in cat_data],
+            y=[c["accuracy"] for c in cat_data],
+            marker_color="#00C076",
+            text=[f"{c['accuracy']:.0%} ({c['correct']}/{c['total']})" for c in cat_data],
+            textposition='auto',
+        ))
+        fig_cat.update_layout(
+            title="Accuracy by Market Category",
+            template="plotly_dark",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20),
+            yaxis_tickformat=".0%",
+            yaxis_title="Accuracy",
+            xaxis_title="Category",
+            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+            xaxis=dict(showgrid=False, zeroline=False),
+            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
+        )
+        st.plotly_chart(fig_cat, use_container_width=True)
+    else:
+        st.info("No category data available yet.")
+
+    # Prediction log
+    st.markdown("### 📝 Prediction Log")
+    snapshots = repo.get_backtest_snapshots(limit=50)
+
+    if snapshots:
+        for snap in snapshots[:20]:
+            outcome = snap.get("resolved_outcome")
+            flagged = snap.get("flagged_side")
+            correct = snap.get("predicted_correct")
+
+            if outcome:
+                if correct:
+                    icon = "✅"
+                    color = "#00C076"
+                else:
+                    icon = "❌"
+                    color = "#FF4F4F"
+                result_text = f"Predicted {flagged}, Resolved {outcome}"
+            else:
+                icon = "⏳"
+                color = "#9CA3AF"
+                result_text = f"Predicted {flagged}, Pending"
+
+            st.markdown(f"""
+            <div style='border-left: 3px solid {color}; padding-left: 10px; margin-bottom: 8px;'>
+                <div style='display:flex;justify-content:space-between;'>
+                    <span>{icon} {snap.get('question', '')[:60]}...</span>
+                    <span style='color:{color};'>{snap.get('edge_pct', 0):.0f}% edge</span>
+                </div>
+                <div style='font-size: 0.8rem; color: #9CA3AF;'>{result_text}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No predictions logged yet. Predictions are automatically tracked when markets are flagged.")
 
     st.markdown("---")
 
@@ -936,6 +1087,19 @@ def render_sidebar():
 
     # Filter Controls
     with st.sidebar.expander("🎯 FILTERS", expanded=False):
+        # Category filter
+        try:
+            categories = repo.get_unique_categories()
+            category_options = ["All Categories"] + categories
+            selected_category = st.selectbox(
+                "Category",
+                category_options,
+                key="filter_category",
+                help="Filter markets by category"
+            )
+        except Exception:
+            selected_category = "All Categories"
+
         max_days = st.slider("Max days to expiry", 1, 90, 14, key="filter_max_days")
         min_edge = st.slider("Min edge %", 50, 90, 60, key="filter_min_edge")
         min_liquidity = st.number_input("Min liquidity ($)", 100, 100000, 1000, step=500, key="filter_min_liquidity")
@@ -946,6 +1110,34 @@ def render_sidebar():
         with price_col2:
             max_price = st.number_input("Max", 0.01, 0.99, 0.90, step=0.05, key="filter_max_price", format="%.2f")
         st.caption("Filters apply to Top Opportunities tab")
+
+    # Live Monitor Controls
+    with st.sidebar.expander("🔴 LIVE MONITOR", expanded=False):
+        live_mode = st.selectbox(
+            "Auto-refresh",
+            ["Off", "Top 10", "Top 20", "Watched Only"],
+            key="live_monitor_mode",
+            help="Automatically refresh top opportunities"
+        )
+        if live_mode != "Off":
+            refresh_interval = st.selectbox(
+                "Refresh interval",
+                [60, 120, 300],
+                format_func=lambda x: f"{x}s",
+                key="live_refresh_interval",
+                help="Seconds between refreshes"
+            )
+            st.caption("Note: Each refresh cycle makes ~200 API calls")
+
+            # Show watched markets count
+            watched_count = len(repo.get_watched_markets())
+            st.markdown(f"**Watched Markets:** {watched_count}")
+
+            if st.button("Clear Watch List", use_container_width=True):
+                for m in repo.get_watched_markets():
+                    repo.remove_watched_market(m["market_id"])
+                st.success("Watch list cleared")
+                st.rerun()
 
     # Score Weights
     with st.sidebar.expander("⚖️ SCORE WEIGHTS", expanded=False):
@@ -1108,11 +1300,32 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
         yes_prof_pct = data.get('yes_profitable_pct', 0)
         no_prof_pct = data.get('no_profitable_pct', 0)
 
+        # Data quality badge
+        yes_quality = data.get('yes_data_quality_score', 0) or 0
+        no_quality = data.get('no_data_quality_score', 0) or 0
+        avg_quality = (yes_quality + no_quality) / 2 if (yes_quality or no_quality) else 0
+
+        if avg_quality >= 70:
+            quality_label = "Good"
+            quality_color = "#00C076"
+        elif avg_quality >= 40:
+            quality_label = "Fair"
+            quality_color = "#F59E0B"
+        else:
+            quality_label = "Poor"
+            quality_color = "#FF4F4F"
+
+        st.markdown(f"<div style='text-align:right;margin-bottom:8px;'><span style='background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;color:{quality_color};font-size:0.8rem;'>Data Quality: <b>{quality_label}</b> ({avg_quality:.0f})</span></div>", unsafe_allow_html=True)
+
         st.markdown("#### YES SIDE")
         st.markdown(f"**Price:** `{yes_price:.1%}`")
         st.markdown(f"**Holders Analyzed:** `{data.get('yes_top_n_count', 0)}`")
         st.markdown(f"**Profitable:** `{data.get('yes_profitable_count', 0)}` ({yes_prof_pct:.0%})")
-        st.markdown(f"**Avg Realized PNL:** `${data.get('yes_avg_overall_pnl', 0):,.0f}`")
+        yes_cash_pnl = data.get('yes_avg_overall_pnl', 0) or 0
+        yes_realized_pnl = data.get('yes_avg_realized_pnl')
+        st.markdown(f"**Avg Cash PNL:** `${yes_cash_pnl:,.0f}`")
+        if yes_realized_pnl is not None:
+            st.markdown(f"**Avg Realized PNL:** `${yes_realized_pnl:,.0f}`")
 
         st.divider()
 
@@ -1120,7 +1333,33 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
         st.markdown(f"**Price:** `{no_price:.1%}`")
         st.markdown(f"**Holders Analyzed:** `{data.get('no_top_n_count', 0)}`")
         st.markdown(f"**Profitable:** `{data.get('no_profitable_count', 0)}` ({no_prof_pct:.0%})")
-        st.markdown(f"**Avg Realized PNL:** `${data.get('no_avg_overall_pnl', 0):,.0f}`")
+        no_cash_pnl = data.get('no_avg_overall_pnl', 0) or 0
+        no_realized_pnl = data.get('no_avg_realized_pnl')
+        st.markdown(f"**Avg Cash PNL:** `${no_cash_pnl:,.0f}`")
+        if no_realized_pnl is not None:
+            st.markdown(f"**Avg Realized PNL:** `${no_realized_pnl:,.0f}`")
+
+        # Watch button for live monitoring
+        st.divider()
+        market_id = data.get("market_id")
+        if market_id and repo:
+            is_watched = repo.is_market_watched(market_id)
+            watch_col1, watch_col2 = st.columns(2)
+            with watch_col1:
+                if is_watched:
+                    if st.button("👁 Unwatch", key=f"unwatch_{key_prefix}_{market_id}", use_container_width=True):
+                        repo.remove_watched_market(market_id)
+                        st.rerun()
+                else:
+                    if st.button("👁 Watch", key=f"watch_{key_prefix}_{market_id}", use_container_width=True, type="primary"):
+                        repo.add_watched_market(
+                            market_id=market_id,
+                            condition_id=data.get("condition_id", ""),
+                            token_id_yes=data.get("token_id_yes"),
+                            token_id_no=data.get("token_id_no"),
+                        )
+                        st.success("Added to watch list!")
+                        st.rerun()
 
         # Add to Portfolio Section
         st.divider()
@@ -1161,6 +1400,63 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
                 )
                 st.success(f"Added {trade_side} trade to portfolio!")
                 st.rerun()
+
+        # Alert Configuration Section
+        st.divider()
+        st.markdown("#### SET ALERT")
+
+        alert_type = st.selectbox(
+            "Alert Type",
+            ["tp", "sl", "threshold_cross", "significant_change"],
+            format_func=lambda x: {
+                "tp": "Take Profit (Edge rises above)",
+                "sl": "Stop Loss (Edge drops below)",
+                "threshold_cross": "Crosses 60% flagging threshold",
+                "significant_change": "Significant change (>10%)",
+            }.get(x, x),
+            key=f"alert_type_{key_prefix}_{market_id}"
+        )
+
+        if alert_type in ["tp", "sl"]:
+            threshold = st.slider(
+                "Edge threshold %",
+                min_value=50,
+                max_value=95,
+                value=70 if alert_type == "tp" else 55,
+                key=f"alert_threshold_{key_prefix}_{market_id}"
+            )
+        else:
+            threshold = None
+
+        if st.button("🔔 Create Alert", key=f"create_alert_{key_prefix}_{market_id}", use_container_width=True):
+            if repo:
+                repo.create_alert_config(
+                    market_id=market_id,
+                    alert_type=alert_type,
+                    threshold_value=threshold,
+                )
+                st.success(f"Alert created!")
+
+        # Show existing alerts for this market
+        if repo and market_id:
+            existing_alerts = repo.get_alert_configs_for_market(market_id)
+            if existing_alerts:
+                st.markdown("**Active Alerts:**")
+                for ac in existing_alerts:
+                    alert_desc = {
+                        "tp": f"TP @ {ac.get('threshold_value', 0):.0f}%",
+                        "sl": f"SL @ {ac.get('threshold_value', 0):.0f}%",
+                        "threshold_cross": "Threshold Cross",
+                        "significant_change": "Significant Change",
+                    }.get(ac.get("alert_type"), ac.get("alert_type"))
+                    enabled = "🟢" if ac.get("enabled") else "⚫"
+                    col_a, col_b = st.columns([3, 1])
+                    with col_a:
+                        st.markdown(f"{enabled} {alert_desc}")
+                    with col_b:
+                        if st.button("🗑", key=f"del_alert_{ac['id']}", help="Delete"):
+                            repo.delete_alert_config(ac['id'])
+                            st.rerun()
 
 
 
@@ -1327,9 +1623,16 @@ def render_dashboard(repo):
         st.info("Waiting for data...")
         return
 
-    results = repo.get_all_results(session_id=latest_session, limit=5000)
+    # Get category filter
+    filter_category = st.session_state.get("filter_category", "All Categories")
+    category_filter = None if filter_category == "All Categories" else filter_category
+
+    results = repo.get_all_results(session_id=latest_session, limit=5000, category=category_filter)
     if not results:
-        st.info("Scanning markets...")
+        if category_filter:
+            st.info(f"No markets found for category '{category_filter}'.")
+        else:
+            st.info("Scanning markets...")
         return
 
     # 3. Process & Filter
@@ -1496,6 +1799,46 @@ def _render_market_list_and_detail(df, repo, is_search=False):
         render_historical_charts(selected_data, repo, key_prefix="all")
 
 
+def render_alert_panel(repo):
+    """Render the alert notification panel."""
+    alerts = repo.get_unacknowledged_alerts(limit=20)
+
+    if not alerts:
+        st.info("No unacknowledged alerts")
+        return
+
+    st.markdown(f"### 🔔 {len(alerts)} Unacknowledged Alert(s)")
+
+    if st.button("Acknowledge All", use_container_width=True):
+        repo.acknowledge_all_alerts()
+        st.rerun()
+
+    for alert in alerts:
+        alert_type = alert.get("alert_type", "")
+        type_colors = {
+            "tp": "#00C076",  # Take Profit - green
+            "sl": "#FF4F4F",  # Stop Loss - red
+            "threshold_cross": "#F59E0B",  # Warning - orange
+            "significant_change": "#3B82F6",  # Info - blue
+        }
+        color = type_colors.get(alert_type, "#9CA3AF")
+
+        with st.container():
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"""
+                <div style='border-left: 3px solid {color}; padding-left: 10px; margin-bottom: 8px;'>
+                    <div style='font-size: 0.8rem; color: #9CA3AF;'>{alert_type.upper()} • {datetime.fromtimestamp(alert.get('triggered_at', 0)).strftime('%m/%d %H:%M')}</div>
+                    <div style='font-size: 0.9rem;'>{alert.get('message', '')}</div>
+                    <div style='font-size: 0.75rem; color: #6B7280;'>{alert.get('question', '')[:50]}...</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                if st.button("✓", key=f"ack_{alert['id']}", help="Acknowledge"):
+                    repo.acknowledge_alert(alert['id'])
+                    st.rerun()
+
+
 def main():
     try:
         repo = get_repository()
@@ -1505,12 +1848,22 @@ def main():
 
     render_sidebar()
 
-    # Tab navigation
-    tab_opportunities, tab_portfolio, tab_all = st.tabs([
+    # Alert notification badge
+    alert_count = repo.get_alert_count(unacknowledged_only=True)
+
+    # Tab navigation with alert indicator
+    tab_names = [
         "🎯 Top Opportunities",
         "💼 Portfolio",
-        "📊 All Markets"
-    ])
+        "📊 All Markets",
+    ]
+    if alert_count > 0:
+        tab_names.append(f"🔔 Alerts ({alert_count})")
+    else:
+        tab_names.append("🔔 Alerts")
+
+    tabs = st.tabs(tab_names)
+    tab_opportunities, tab_portfolio, tab_all, tab_alerts = tabs
 
     with tab_opportunities:
         render_opportunities_tab(repo)
@@ -1520,6 +1873,9 @@ def main():
 
     with tab_all:
         render_dashboard(repo)
+
+    with tab_alerts:
+        render_alert_panel(repo)
 
 if __name__ == "__main__":
     main()

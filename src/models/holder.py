@@ -25,7 +25,8 @@ class MarketHolder:
     display_name: Optional[str] = None
 
     # PNL data (populated from leaderboard lookup)
-    overall_pnl: Optional[float] = None  # All-time PNL
+    overall_pnl: Optional[float] = None  # All-time PNL (cashPnl from API)
+    realized_pnl: Optional[float] = None  # Realized PNL only (closed positions)
     pnl_30d: Optional[float] = None  # 30-day PNL
 
     # Flags
@@ -47,6 +48,7 @@ class MarketHolder:
             "username": self.username,
             "display_name": self.display_name,
             "overall_pnl": self.overall_pnl,
+            "realized_pnl": self.realized_pnl,
             "pnl_30d": self.pnl_30d,
             "is_on_leaderboard": self.is_on_leaderboard,
         }
@@ -61,6 +63,7 @@ class MarketHolder:
             username=data.get("username"),
             display_name=data.get("display_name"),
             overall_pnl=data.get("overall_pnl"),
+            realized_pnl=data.get("realized_pnl"),
             pnl_30d=data.get("pnl_30d"),
             is_on_leaderboard=data.get("is_on_leaderboard", False),
         )
