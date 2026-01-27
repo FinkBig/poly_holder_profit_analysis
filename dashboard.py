@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.db.repository import ScannerRepository
 from src.config.settings import DEFAULT_DB_PATH, IMBALANCE_THRESHOLD
-from src.fetchers.price_fetcher import fetch_prices_for_trades, fetch_holder_stats_for_trades
+from src.fetchers.price_fetcher import fetch_prices_for_trades
 
 # Page Config
 st.set_page_config(
@@ -31,144 +31,153 @@ st.markdown("""
     .stApp {
         font-family: 'IBM Plex Mono', 'Courier New', monospace;
     }
-    
-    /* Remove padding around main container for full width feel */
+
+    /* Compact container padding */
     .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        padding-left: 2rem;
-        padding-right: 2rem;
+        padding-top: 1.5rem;
+        padding-bottom: 1.5rem;
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
     }
 
-    /* Metric Cards */
+    /* Metric Cards - Compact */
     div[data-testid="stMetric"] {
         background-color: #262730;
         border: 1px solid #363945;
-        padding: 10px;
-        border-radius: 5px;
+        padding: 0.5rem;
+        border-radius: 4px;
     }
     div[data-testid="stMetricLabel"] {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         color: #9CA3AF;
     }
     div[data-testid="stMetricValue"] {
-        font-size: 1.2rem;
+        font-size: 1.1rem;
         font-weight: 600;
         color: #F3F4F6;
     }
 
-    /* Table Styling */
+    /* Table Styling - Cleaner */
     div[data-testid="stDataFrame"] {
         border: 1px solid #363945;
-        border-radius: 5px;
+        border-radius: 4px;
     }
-    
-    /* Buttons */
+
+    /* Buttons - Consistent & Compact */
     .stButton button {
         border-radius: 4px;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        font-weight: 500;
         font-size: 0.8rem;
+        height: 32px;
+        border: 1px solid #363945;
     }
-    
-    /* Tabs */
+    .stButton button:hover {
+        background: rgba(59,130,246,0.1);
+        border-color: #4a4d5a;
+    }
+
+    /* Tabs - Tighter */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 20px;
+        gap: 16px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
+        height: 44px;
         white-space: pre-wrap;
         background-color: transparent;
         border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        padding-top: 8px;
+        padding-bottom: 8px;
     }
-    
-    /* Custom Headers */
+
+    /* Custom Headers - Compact */
     .terminal-header {
         border-bottom: 2px solid #00C076;
-        padding-bottom: 10px;
-        margin-bottom: 20px;
+        padding-bottom: 8px;
+        margin-bottom: 16px;
         color: #00C076;
         font-weight: bold;
         text-transform: uppercase;
         letter-spacing: 0.1em;
+        font-size: 0.9rem;
     }
-    
+
     /* Side panel bg */
     section[data-testid="stSidebar"] {
         background-color: #11141a;
         border-right: 1px solid #363945;
     }
 
-    /* === STATUS BADGES === */
+    /* === STATUS BADGES - Compact === */
     .badge-yes {
         background: rgba(0,192,118,0.15);
         color: #00C076;
-        padding: 4px 12px;
-        border-radius: 12px;
+        padding: 3px 10px;
+        border-radius: 10px;
         font-weight: 600;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         display: inline-block;
     }
     .badge-no {
         background: rgba(255,79,79,0.15);
         color: #FF4F4F;
-        padding: 4px 12px;
-        border-radius: 12px;
+        padding: 3px 10px;
+        border-radius: 10px;
         font-weight: 600;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         display: inline-block;
     }
     .badge-win {
         background: rgba(0,192,118,0.25);
         color: #00C076;
         border: 1px solid #00C076;
-        padding: 4px 10px;
-        border-radius: 12px;
+        padding: 3px 8px;
+        border-radius: 10px;
         font-weight: bold;
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         display: inline-block;
     }
     .badge-loss {
         background: rgba(255,79,79,0.25);
         color: #FF4F4F;
         border: 1px solid #FF4F4F;
-        padding: 4px 10px;
-        border-radius: 12px;
+        padding: 3px 8px;
+        border-radius: 10px;
         font-weight: bold;
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         display: inline-block;
     }
 
-    /* === TABLE HEADERS === */
+    /* === TABLE HEADERS - Compact === */
     .table-header {
         background: linear-gradient(180deg, #1a1c24 0%, #262730 100%);
-        border-bottom: 2px solid #3B82F6;
-        padding: 10px 8px;
+        border-bottom: 1px solid #363945;
+        padding: 8px 6px;
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: 0.7rem;
+        letter-spacing: 0.06em;
+        font-size: 0.65rem;
         color: #9CA3AF;
-        margin-bottom: 8px;
+        margin-bottom: 4px;
+    }
+
+    /* === TABLE ROWS - Alternating & Compact === */
+    div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"]:nth-child(even) {
+        background: rgba(38,39,48,0.3);
     }
 
     /* === ROW HOVER EFFECTS === */
     .stButton button[kind="secondary"]:hover {
-        background: rgba(59,130,246,0.15) !important;
-        border-left: 3px solid #3B82F6;
-        transition: all 0.15s ease;
+        background: rgba(59,130,246,0.12) !important;
+        border-left: 2px solid #3B82F6;
+        transition: all 0.12s ease;
     }
     .stButton button[kind="primary"]:hover {
-        box-shadow: 0 0 12px rgba(59,130,246,0.4);
+        box-shadow: 0 0 8px rgba(59,130,246,0.3);
     }
 
     /* === CUSTOM SCROLLBAR === */
     div[data-testid="stVerticalBlock"] > div::-webkit-scrollbar {
-        width: 6px;
+        width: 5px;
     }
     div[data-testid="stVerticalBlock"] > div::-webkit-scrollbar-track {
         background: #1a1c24;
@@ -184,43 +193,30 @@ st.markdown("""
     /* === SIDEBAR POLISH === */
     section[data-testid="stSidebar"] .streamlit-expanderHeader {
         background: rgba(38,39,48,0.5);
-        border-radius: 8px;
-        padding: 8px 12px;
+        border-radius: 6px;
+        padding: 6px 10px;
     }
     section[data-testid="stSidebar"] hr {
         border-color: #363945;
-        margin: 16px 0;
+        margin: 12px 0;
     }
 
-    /* === ACTION BUTTONS === */
-    .action-btn {
-        width: 28px;
-        height: 28px;
-        padding: 0;
-        border-radius: 50%;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        border: 1px solid transparent;
-        background: transparent;
-        cursor: pointer;
-        transition: all 0.15s ease;
+    /* === SECTION MARGINS - Tighter === */
+    .stMarkdown {
+        margin-bottom: 0.5rem;
     }
-    .action-btn:hover {
-        transform: scale(1.1);
+
+    /* === DIVIDERS - Subtle === */
+    hr {
+        border-color: #363945;
+        margin-top: 0.75rem;
+        margin-bottom: 0.75rem;
     }
-    .action-btn-win:hover {
-        background: rgba(0,192,118,0.2);
-        border-color: #00C076;
-    }
-    .action-btn-loss:hover {
-        background: rgba(255,79,79,0.2);
-        border-color: #FF4F4F;
-    }
-    .action-btn-delete:hover {
-        background: rgba(156,163,175,0.2);
-        border-color: #9CA3AF;
+
+    /* === EXPANDERS - Compact === */
+    .streamlit-expanderHeader {
+        font-size: 0.85rem;
+        padding: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -619,22 +615,49 @@ def render_opportunities_tab(repo):
         render_historical_charts(selected_data, repo, key_prefix="opp")
 
 
-def render_backtesting_tab(repo):
-    """Render the Backtesting tab with performance analysis."""
+def render_backtest_tab(repo):
+    """Render the Backtest tab with performance analysis and refresh functionality."""
     st.markdown("<div class='terminal-header'>SCANNER PERFORMANCE ANALYSIS</div>", unsafe_allow_html=True)
 
-    # Backtest Stats Row
+    # Stats Row (top)
     stats = repo.get_backtest_stats()
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total Flagged", stats["total_flagged"])
     col2.metric("Resolved", stats["resolved"])
-    col3.metric("Accuracy", f"{stats['accuracy']:.1%}" if stats["resolved"] > 0 else "N/A")
-    col4.metric("Correct/Wrong", f"{stats['correct']}/{stats['incorrect']}")
+    col3.metric("Pending", stats["pending"])
+    col4.metric("Accuracy", f"{stats['accuracy']:.1%}" if stats["resolved"] > 0 else "N/A")
     col5.metric("Theoretical PNL", f"${stats['total_pnl']:.2f}")
 
     st.markdown("---")
 
-    # Info about how backtesting works
+    # Refresh Button Row
+    refresh_col1, refresh_col2, refresh_col3 = st.columns([1, 1, 2])
+    with refresh_col1:
+        if st.button("🔄 Refresh Pending", use_container_width=True):
+            unresolved = repo.get_unresolved_backtest_markets()
+            if unresolved:
+                condition_ids = [m["condition_id"] for m in unresolved if m.get("condition_id")]
+                with st.spinner(f"Fetching prices for {len(condition_ids)} markets..."):
+                    try:
+                        prices = asyncio.run(fetch_prices_for_trades(condition_ids))
+                        st.session_state["backtest_prices"] = prices
+                        st.session_state["backtest_last_refresh"] = int(datetime.now().timestamp())
+                        st.success(f"Updated {len(prices)} markets")
+                    except Exception as e:
+                        st.error(f"Failed to refresh: {e}")
+            else:
+                st.info("No pending markets to refresh")
+
+    with refresh_col2:
+        last_refresh = st.session_state.get("backtest_last_refresh")
+        if last_refresh:
+            minutes_ago = (int(datetime.now().timestamp()) - last_refresh) // 60
+            if minutes_ago < 1:
+                st.caption("Last refreshed: just now")
+            else:
+                st.caption(f"Last refreshed: {minutes_ago}m ago")
+
+    # Info expander
     with st.expander("How Backtesting Works", expanded=False):
         st.markdown("""
         **Automatic Tracking:**
@@ -648,430 +671,156 @@ def render_backtesting_tab(repo):
         """)
 
 
-def render_portfolio_tab(repo):
-    """Render the Portfolio tab with trade tracking and analytics (legacy, now shows backtesting)."""
-    render_backtesting_tab(repo)
-
-    st.markdown("---")
-    st.markdown("### 📈 Performance by Edge Level")
+    # Charts Row - Side by side
+    chart_col1, chart_col2 = st.columns(2)
 
     # Edge level breakdown
-    edge_data = repo.get_backtest_by_edge_level()
-    edge_with_data = [e for e in edge_data if e["total"] > 0]
+    with chart_col1:
+        st.markdown("### Accuracy by Edge Level")
+        edge_data = repo.get_backtest_by_edge_level()
+        edge_with_data = [e for e in edge_data if e["total"] > 0]
 
-    if edge_with_data:
-        fig_edge = go.Figure()
-        fig_edge.add_trace(go.Bar(
-            x=[e["edge_range"] for e in edge_with_data],
-            y=[e["accuracy"] for e in edge_with_data],
-            marker_color="#3B82F6",
-            text=[f"{e['accuracy']:.0%} ({e['correct']}/{e['total']})" for e in edge_with_data],
-            textposition='auto',
-        ))
-        fig_edge.update_layout(
-            title="Does Higher Edge = Higher Accuracy?",
-            template="plotly_dark",
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            height=300,
-            margin=dict(l=20, r=20, t=40, b=20),
-            yaxis_tickformat=".0%",
-            yaxis_title="Accuracy",
-            xaxis_title="Edge at Flag Time",
-            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-            xaxis=dict(showgrid=False, zeroline=False),
-            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
-        )
-        st.plotly_chart(fig_edge, use_container_width=True)
-    else:
-        st.info("No resolved predictions yet. Run resolve_markets.py after markets settle.")
+        if edge_with_data:
+            fig_edge = go.Figure()
+            fig_edge.add_trace(go.Bar(
+                x=[e["edge_range"] for e in edge_with_data],
+                y=[e["accuracy"] for e in edge_with_data],
+                marker_color="#3B82F6",
+                text=[f"{e['accuracy']:.0%} ({e['correct']}/{e['total']})" for e in edge_with_data],
+                textposition='auto',
+            ))
+            fig_edge.update_layout(
+                template="plotly_dark",
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                height=280,
+                margin=dict(l=20, r=20, t=10, b=20),
+                yaxis_tickformat=".0%",
+                yaxis_title="Accuracy",
+                xaxis_title="Edge at Flag Time",
+                yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                xaxis=dict(showgrid=False, zeroline=False),
+                hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
+            )
+            st.plotly_chart(fig_edge, use_container_width=True, key="backtest_edge_chart")
+        else:
+            st.info("No resolved predictions yet. Run resolve_markets.py after markets settle.")
 
     # Category breakdown
-    st.markdown("### 📊 Performance by Category")
-    cat_data = repo.get_backtest_by_category()
+    with chart_col2:
+        st.markdown("### Accuracy by Category")
+        cat_data = repo.get_backtest_by_category()
 
-    if cat_data:
-        fig_cat = go.Figure()
-        fig_cat.add_trace(go.Bar(
-            x=[c["category"] for c in cat_data],
-            y=[c["accuracy"] for c in cat_data],
-            marker_color="#00C076",
-            text=[f"{c['accuracy']:.0%} ({c['correct']}/{c['total']})" for c in cat_data],
-            textposition='auto',
-        ))
-        fig_cat.update_layout(
-            title="Accuracy by Market Category",
-            template="plotly_dark",
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            height=300,
-            margin=dict(l=20, r=20, t=40, b=20),
-            yaxis_tickformat=".0%",
-            yaxis_title="Accuracy",
-            xaxis_title="Category",
-            yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-            xaxis=dict(showgrid=False, zeroline=False),
-            hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
-        )
-        st.plotly_chart(fig_cat, use_container_width=True)
-    else:
-        st.info("No category data available yet.")
+        if cat_data:
+            fig_cat = go.Figure()
+            fig_cat.add_trace(go.Bar(
+                x=[c["category"][:12] for c in cat_data],  # Truncate long category names
+                y=[c["accuracy"] for c in cat_data],
+                marker_color="#00C076",
+                text=[f"{c['accuracy']:.0%} ({c['correct']}/{c['total']})" for c in cat_data],
+                textposition='auto',
+            ))
+            fig_cat.update_layout(
+                template="plotly_dark",
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                height=280,
+                margin=dict(l=20, r=20, t=10, b=20),
+                yaxis_tickformat=".0%",
+                yaxis_title="Accuracy",
+                xaxis_title="Category",
+                yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
+                xaxis=dict(showgrid=False, zeroline=False),
+                hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
+            )
+            st.plotly_chart(fig_cat, use_container_width=True, key="backtest_cat_chart")
+        else:
+            st.info("No category data available yet.")
 
-    # Prediction log
+    st.markdown("---")
+
+    # Prediction Log with live prices
     st.markdown("### 📝 Prediction Log")
     snapshots = repo.get_backtest_snapshots(limit=50)
+    cached_prices = st.session_state.get("backtest_prices", {})
 
     if snapshots:
-        for snap in snapshots[:20]:
-            outcome = snap.get("resolved_outcome")
-            flagged = snap.get("flagged_side")
-            correct = snap.get("predicted_correct")
-
-            if outcome:
-                if correct:
-                    icon = "✅"
-                    color = "#00C076"
-                else:
-                    icon = "❌"
-                    color = "#FF4F4F"
-                result_text = f"Predicted {flagged}, Resolved {outcome}"
-            else:
-                icon = "⏳"
-                color = "#9CA3AF"
-                result_text = f"Predicted {flagged}, Pending"
-
-            st.markdown(f"""
-            <div style='border-left: 3px solid {color}; padding-left: 10px; margin-bottom: 8px;'>
-                <div style='display:flex;justify-content:space-between;'>
-                    <span>{icon} {snap.get('question', '')[:60]}...</span>
-                    <span style='color:{color};'>{snap.get('edge_pct', 0):.0f}% edge</span>
-                </div>
-                <div style='font-size: 0.8rem; color: #9CA3AF;'>{result_text}</div>
+        # Header row
+        st.markdown("""
+        <div class='table-header'>
+            <div style='display:flex;gap:8px;'>
+                <span style='width:30px;'>St</span>
+                <span style='flex:2.5;'>Market</span>
+                <span style='width:60px;'>Side</span>
+                <span style='width:60px;'>Edge</span>
+                <span style='width:70px;'>Flag $</span>
+                <span style='width:70px;'>Now $</span>
+                <span style='width:80px;'>Result</span>
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.container(height=400):
+            for snap in snapshots[:30]:
+                outcome = snap.get("resolved_outcome")
+                flagged = snap.get("flagged_side")
+                correct = snap.get("predicted_correct")
+                condition_id = snap.get("condition_id")
+                price_at_flag = snap.get("price_at_flag", 0)
+
+                # Status icon
+                if outcome:
+                    if correct:
+                        icon = "✅"
+                        result_text = f"✅ {outcome}"
+                        result_color = "#00C076"
+                    else:
+                        icon = "❌"
+                        result_text = f"❌ {outcome}"
+                        result_color = "#FF4F4F"
+                else:
+                    icon = "⏳"
+                    result_text = "Pending"
+                    result_color = "#9CA3AF"
+
+                # Current price from cache
+                current_price = None
+                price_change_html = ""
+                if condition_id and condition_id in cached_prices:
+                    yes_price, no_price = cached_prices[condition_id]
+                    current_price = yes_price if flagged == "YES" else no_price
+                    if price_at_flag and current_price:
+                        change = current_price - price_at_flag
+                        change_color = "#00C076" if change >= 0 else "#FF4F4F"
+                        price_change_html = f"<span style='color:{change_color};'>${current_price:.2f}</span>"
+
+                # Row columns
+                c_st, c_market, c_side, c_edge, c_flag, c_now, c_result = st.columns([0.3, 2.5, 0.5, 0.5, 0.6, 0.6, 0.7])
+
+                with c_st:
+                    st.markdown(icon)
+                with c_market:
+                    question = snap.get('question', '')[:50]
+                    slug = snap.get('slug', '')
+                    if slug:
+                        st.markdown(f"[{question}...](https://polymarket.com/event/{slug})")
+                    else:
+                        st.markdown(f"{question}...")
+                with c_side:
+                    st.markdown(render_side_badge(flagged), unsafe_allow_html=True)
+                with c_edge:
+                    st.markdown(f"{snap.get('edge_pct', 0):.0f}%")
+                with c_flag:
+                    st.markdown(f"${price_at_flag:.2f}" if price_at_flag else "—")
+                with c_now:
+                    if price_change_html:
+                        st.markdown(price_change_html, unsafe_allow_html=True)
+                    else:
+                        st.markdown("—")
+                with c_result:
+                    st.markdown(f"<span style='color:{result_color};'>{result_text}</span>", unsafe_allow_html=True)
     else:
         st.info("No predictions logged yet. Predictions are automatically tracked when markets are flagged.")
-
-    st.markdown("---")
-
-    # Single Refresh Button
-    btn_col1, btn_col2 = st.columns([1, 3])
-    with btn_col1:
-        if st.button("🔄 Refresh Data", use_container_width=True):
-            trades_with_tokens = repo.get_trades_with_token_ids()
-            if trades_with_tokens:
-                condition_ids = [t["condition_id"] for t in trades_with_tokens]
-                valid_trades = [t for t in trades_with_tokens if t.get("token_id_yes") and t.get("token_id_no")]
-
-                with st.spinner("Fetching prices and holder stats..."):
-                    try:
-                        # Fetch prices
-                        prices = asyncio.run(fetch_prices_for_trades(condition_ids))
-                        st.session_state["portfolio_prices"] = prices
-
-                        # Fetch holder stats
-                        if valid_trades:
-                            holder_stats = asyncio.run(fetch_holder_stats_for_trades(valid_trades))
-                            st.session_state["portfolio_holder_stats"] = holder_stats
-
-                        st.success(f"Updated {len(prices)} markets")
-                    except Exception as e:
-                        st.error(f"Failed to refresh: {e}")
-            else:
-                st.info("No open trades to refresh")
-
-    # Get all trades
-    all_trades = repo.get_all_trades(limit=100)
-
-    if not all_trades:
-        st.info("No trades in portfolio. Add trades from the Top Opportunities tab.")
-        return
-
-    # Get cached data
-    cached_prices = st.session_state.get("portfolio_prices", {})
-    cached_holder_stats = st.session_state.get("portfolio_holder_stats", {})
-
-    # Filter trades
-    open_trades = [t for t in all_trades if t["outcome"] == "pending"]
-    closed_trades = [t for t in all_trades if t["outcome"] in ("win", "loss")]
-
-    # Split layout: Trade list on left, Analysis on right
-    col_list, col_detail = st.columns([1.5, 1])
-
-    with col_list:
-        st.markdown("### Open Trades")
-
-        if open_trades:
-            # Styled header row
-            st.markdown("""
-            <div class='table-header'>
-                <div style='display:flex;gap:8px;'>
-                    <span style='flex:2;'>Market</span>
-                    <span style='width:50px;'>Side</span>
-                    <span style='width:50px;'>Entry</span>
-                    <span style='width:50px;'>Now</span>
-                    <span style='width:80px;'>Edge</span>
-                    <span style='width:80px;'>Actions</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            h_market, h_side, h_entry, h_now, h_edge, h_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.7, 0.8])
-
-            with st.container(height=350):
-                for trade in open_trades:
-                    c_market, c_side, c_entry, c_now, c_edge, c_actions = st.columns([2.0, 0.4, 0.5, 0.5, 0.7, 0.8])
-
-                    # Clickable market name
-                    market_name = trade["question"][:30] + "..." if len(trade["question"]) > 30 else trade["question"]
-                    is_selected = st.session_state.get("portfolio_selected_trade_id") == trade["id"]
-
-                    with c_market:
-                        if st.button(
-                            market_name,
-                            key=f"ptrade_{trade['id']}",
-                            use_container_width=True,
-                            type="primary" if is_selected else "secondary"
-                        ):
-                            st.session_state["portfolio_selected_trade_id"] = trade["id"]
-                            st.session_state["portfolio_selected_trade"] = trade
-                            st.rerun()
-
-                    # Side - use badge
-                    c_side.markdown(render_side_badge(trade["side"]), unsafe_allow_html=True)
-
-                    # Entry price
-                    c_entry.markdown(f"${trade['entry_price']:.2f}")
-
-                    # Current price
-                    if trade["condition_id"] in cached_prices:
-                        yes_price, no_price = cached_prices[trade["condition_id"]]
-                        current_price = yes_price if trade["side"] == "YES" else no_price
-                        change = current_price - trade['entry_price']
-                        change_color = "#00C076" if change >= 0 else "#FF4F4F"
-                        c_now.markdown(f"<span style='color:{change_color};'>${current_price:.2f}</span>", unsafe_allow_html=True)
-                    else:
-                        c_now.markdown("—")
-
-                    # Live edge - use edge bar
-                    with c_edge:
-                        if trade["condition_id"] in cached_holder_stats:
-                            live_stats = cached_holder_stats[trade["condition_id"]]
-                            live_edge = live_stats.get("edge_pct", 0)
-                            live_flagged = live_stats.get("flagged_side")
-                            render_edge_bar(live_edge, live_flagged or trade["side"])
-                        else:
-                            edge = trade.get("edge_pct")
-                            if edge:
-                                render_edge_bar(edge, trade["side"])
-                            else:
-                                st.markdown("—")
-
-                    # Action buttons
-                    with c_actions:
-                        b1, b2, b3 = st.columns(3)
-                        with b1:
-                            if st.button("✓", key=f"win_{trade['id']}", help="Win"):
-                                exit_price = 1.0 if trade["side"] == "YES" else 0.0
-                                repo.update_trade_outcome(trade["id"], "win", exit_price)
-                                st.rerun()
-                        with b2:
-                            if st.button("✗", key=f"loss_{trade['id']}", help="Loss"):
-                                exit_price = 0.0 if trade["side"] == "YES" else 1.0
-                                repo.update_trade_outcome(trade["id"], "loss", exit_price)
-                                st.rerun()
-                        with b3:
-                            if st.button("🗑", key=f"del_{trade['id']}", help="Delete"):
-                                repo.delete_trade(trade["id"])
-                                st.rerun()
-        else:
-            st.info("No open trades")
-
-        # Closed Trades
-        st.markdown("### Closed Trades")
-        if closed_trades:
-            # Styled header row
-            st.markdown("""
-            <div class='table-header'>
-                <div style='display:flex;gap:8px;'>
-                    <span style='flex:2.5;'>Market</span>
-                    <span style='width:50px;'>Side</span>
-                    <span style='width:50px;'>Entry</span>
-                    <span style='width:50px;'>Exit</span>
-                    <span style='width:60px;'>Result</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            with st.container(height=200):
-                for trade in closed_trades[:15]:
-                    c_market, c_side, c_entry, c_exit, c_result = st.columns([2.5, 0.4, 0.5, 0.5, 0.6])
-
-                    market_name = trade["question"][:35] + "..." if len(trade["question"]) > 35 else trade["question"]
-                    is_selected = st.session_state.get("portfolio_selected_trade_id") == trade["id"]
-
-                    with c_market:
-                        if st.button(
-                            market_name,
-                            key=f"ctrade_{trade['id']}",
-                            use_container_width=True,
-                            type="primary" if is_selected else "secondary"
-                        ):
-                            st.session_state["portfolio_selected_trade_id"] = trade["id"]
-                            st.session_state["portfolio_selected_trade"] = trade
-                            st.rerun()
-
-                    # Use badges for side and result
-                    c_side.markdown(render_side_badge(trade["side"]), unsafe_allow_html=True)
-                    c_entry.markdown(f"${trade['entry_price']:.2f}")
-
-                    exit_price = trade.get("exit_price")
-                    c_exit.markdown(f"${exit_price:.2f}" if exit_price is not None else "—")
-
-                    c_result.markdown(render_outcome_badge(trade["outcome"]), unsafe_allow_html=True)
-        else:
-            st.info("No closed trades yet")
-
-    # Analysis Panel (Right Side)
-    with col_detail:
-        selected_trade = st.session_state.get("portfolio_selected_trade")
-
-        if selected_trade:
-            # Try to get scan data for this market
-            market_id = selected_trade.get("market_id")
-            scan_data = None
-            if market_id:
-                history = repo.get_market_history(market_id, limit=1)
-                if history:
-                    scan_data = history[0]
-                    # Add question and slug from trade
-                    scan_data["question"] = selected_trade.get("question", "")
-                    scan_data["slug"] = selected_trade.get("slug", "")
-
-            if scan_data:
-                render_market_detail_view(scan_data, repo=repo, key_prefix="port")
-            else:
-                # Show basic trade info if no scan data
-                st.markdown(f"### {selected_trade.get('question', 'Trade Details')}")
-                st.markdown(f"**Side:** {selected_trade.get('side')}")
-                st.markdown(f"**Entry Price:** ${selected_trade.get('entry_price', 0):.2f}")
-                st.markdown(f"**Entry Edge:** {selected_trade.get('edge_pct', 0):.0f}%")
-
-                # Show live stats if available
-                condition_id = selected_trade.get("condition_id")
-                if condition_id in cached_holder_stats:
-                    st.markdown("---")
-                    st.markdown("### Live Holder Stats")
-                    live = cached_holder_stats[condition_id]
-                    yes_stats = live.get("yes", {})
-                    no_stats = live.get("no", {})
-
-                    col_yes, col_no = st.columns(2)
-                    with col_yes:
-                        st.markdown("**YES Side**")
-                        st.markdown(f"Profitable: {yes_stats.get('profitable_pct', 0):.0%}")
-                        st.markdown(f"Avg PNL: ${yes_stats.get('avg_pnl', 0):,.0f}")
-                    with col_no:
-                        st.markdown("**NO Side**")
-                        st.markdown(f"Profitable: {no_stats.get('profitable_pct', 0):.0%}")
-                        st.markdown(f"Avg PNL: ${no_stats.get('avg_pnl', 0):,.0f}")
-
-                # Edit entry price
-                st.markdown("---")
-                st.markdown("### Edit Trade")
-                new_entry = st.number_input(
-                    "Entry Price",
-                    min_value=0.01,
-                    max_value=0.99,
-                    value=float(selected_trade.get('entry_price', 0.5)),
-                    step=0.01,
-                    format="%.2f",
-                    key=f"edit_entry_{selected_trade['id']}"
-                )
-                if abs(new_entry - selected_trade.get('entry_price', 0)) > 0.001:
-                    if st.button("Save Entry Price"):
-                        repo.update_trade_entry_price(selected_trade['id'], new_entry)
-                        st.success("Entry price updated!")
-                        st.rerun()
-        else:
-            st.info("Select a trade to view analysis")
-
-    # Historical Charts - Below the split layout (full width)
-    selected_trade = st.session_state.get("portfolio_selected_trade")
-    if selected_trade:
-        market_id = selected_trade.get("market_id")
-        if market_id:
-            # Get scan data for historical charts
-            history = repo.get_market_history(market_id, limit=1)
-            if history:
-                chart_data = history[0]
-                chart_data["market_id"] = market_id
-                st.markdown("<div style='margin-top: 16px;'></div>", unsafe_allow_html=True)
-                render_historical_charts(chart_data, repo, key_prefix="port")
-
-    # Win Rate Analytics Section
-    st.markdown("---")
-    with st.expander("📊 Win Rate Analytics", expanded=True):
-        if stats["wins"] + stats["losses"] == 0:
-            st.info("Complete some trades to see analytics")
-        else:
-            # Summary metrics
-            an_col1, an_col2, an_col3, an_col4 = st.columns(4)
-            an_col1.metric("Total Closed", stats["wins"] + stats["losses"])
-            an_col2.metric("Win Rate", f"{stats['win_rate']:.1%}")
-            an_col3.metric("Avg Edge at Entry", f"{stats['avg_edge']:.1f}%" if stats["avg_edge"] else "N/A")
-            an_col4.metric("Total PNL", f"${stats['total_pnl']:.2f}")
-
-            # Win rate by edge level
-            st.markdown("#### Win Rate by Edge Level")
-            edge_data = repo.get_win_rate_by_edge()
-            edge_with_data = [e for e in edge_data if e["total"] > 0]
-
-            if edge_with_data:
-                fig_edge = go.Figure()
-                fig_edge.add_trace(go.Bar(
-                    x=[e["edge_range"] for e in edge_with_data],
-                    y=[e["win_rate"] for e in edge_with_data],
-                    marker_color="#3B82F6",
-                    text=[f"{e['win_rate']:.0%} ({e['wins']}/{e['total']})" for e in edge_with_data],
-                    textposition='auto',
-                ))
-                fig_edge.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    height=250,
-                    margin=dict(l=20, r=20, t=20, b=20),
-                    yaxis_tickformat=".0%",
-                    yaxis_title="Win Rate",
-                    xaxis_title="Edge at Entry",
-                    yaxis=dict(showgrid=True, gridcolor='rgba(54,57,69,0.4)', gridwidth=1, zeroline=False),
-                    xaxis=dict(showgrid=False, zeroline=False),
-                    hoverlabel=dict(bgcolor="#1a1c24", bordercolor="#363945", font=dict(color="#F3F4F6", family="IBM Plex Mono", size=12))
-                )
-                st.plotly_chart(fig_edge, use_container_width=True)
-            else:
-                st.caption("Not enough data for edge analysis")
-
-            # Scanner prediction accuracy
-            st.markdown("#### Scanner Prediction Accuracy")
-            accuracy = repo.get_prediction_accuracy()
-
-            acc_col1, acc_col2 = st.columns(2)
-            with acc_col1:
-                yes_pct = accuracy["yes_correct"]
-                yes_total = accuracy["yes_total"]
-                st.metric(
-                    "When Scanner Flags YES",
-                    f"{yes_pct:.1%}" if yes_total > 0 else "N/A",
-                    help=f"Based on {yes_total} trades where you followed the YES recommendation"
-                )
-            with acc_col2:
-                no_pct = accuracy["no_correct"]
-                no_total = accuracy["no_total"]
-                st.metric(
-                    "When Scanner Flags NO",
-                    f"{no_pct:.1%}" if no_total > 0 else "N/A",
-                    help=f"Based on {no_total} trades where you followed the NO recommendation"
-                )
 
 
 def render_sidebar():
@@ -1361,48 +1110,7 @@ def render_market_detail_view(data, repo=None, key_prefix=""):
                         st.success("Added to watch list!")
                         st.rerun()
 
-        # Add to Portfolio Section
-        st.divider()
-        st.markdown("#### ADD TO PORTFOLIO")
-
-        # Determine default side based on flagged_side
-        flagged_side = data.get("flagged_side", "YES")
-        default_idx = 0 if flagged_side == "YES" else 1
-
-        trade_side = st.radio(
-            "Side",
-            ["YES", "NO"],
-            index=default_idx,
-            horizontal=True,
-            key=f"trade_side_{key_prefix}_{data.get('market_id')}"
-        )
-
-        # Entry price based on selected side
-        entry_price = yes_price if trade_side == "YES" else no_price
-        st.markdown(f"**Entry Price:** `${entry_price:.2f}`")
-
-        # Calculate edge
-        edge_pct = abs(yes_prof_pct - no_prof_pct) * 100
-
-        if st.button("📥 Add Trade", key=f"add_trade_{key_prefix}_{data.get('market_id')}", use_container_width=True):
-            if repo:
-                repo.add_trade(
-                    market_id=data.get("market_id"),
-                    condition_id=data.get("condition_id", ""),
-                    question=data.get("question", ""),
-                    slug=data.get("slug", ""),
-                    side=trade_side,
-                    entry_price=entry_price,
-                    flagged_side=flagged_side,
-                    edge_pct=edge_pct,
-                    score=data.get("imbalance_score"),
-                    scan_result_id=data.get("id"),
-                )
-                st.success(f"Added {trade_side} trade to portfolio!")
-                st.rerun()
-
         # Alert Configuration Section
-        st.divider()
         st.markdown("#### SET ALERT")
 
         alert_type = st.selectbox(
@@ -1854,7 +1562,7 @@ def main():
     # Tab navigation with alert indicator
     tab_names = [
         "🎯 Top Opportunities",
-        "💼 Portfolio",
+        "📈 Backtest",
         "📊 All Markets",
     ]
     if alert_count > 0:
@@ -1863,13 +1571,13 @@ def main():
         tab_names.append("🔔 Alerts")
 
     tabs = st.tabs(tab_names)
-    tab_opportunities, tab_portfolio, tab_all, tab_alerts = tabs
+    tab_opportunities, tab_backtest, tab_all, tab_alerts = tabs
 
     with tab_opportunities:
         render_opportunities_tab(repo)
 
-    with tab_portfolio:
-        render_portfolio_tab(repo)
+    with tab_backtest:
+        render_backtest_tab(repo)
 
     with tab_all:
         render_dashboard(repo)
