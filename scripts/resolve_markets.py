@@ -2,18 +2,20 @@
 """
 Script to check resolved markets and update backtest snapshots.
 
-Fetches market resolution status from Gamma API and updates
-the backtest_snapshots table with actual outcomes.
+Uses bulk fetching from Gamma API (similar to poly_data approach) for efficiency.
+Fetches closed markets in batches instead of individual API calls.
 
 Run periodically (e.g., daily) to update accuracy metrics.
 """
 
 import asyncio
 import aiohttp
+import json
 import logging
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -27,62 +29,147 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Batch size for bulk fetching (poly_data uses 500)
+BATCH_SIZE = 500
+REQUEST_DELAY = 0.2
 
-async def fetch_market_status(session: aiohttp.ClientSession, market_id: str) -> dict:
-    """Fetch market status from Gamma API."""
+
+async def fetch_closed_markets_batch(
+    session: aiohttp.ClientSession,
+    offset: int = 0,
+    limit: int = BATCH_SIZE
+) -> List[Dict]:
+    """Fetch a batch of closed markets from Gamma API."""
+    params = {
+        "closed": "true",
+        "limit": limit,
+        "offset": offset,
+    }
+
+    try:
+        async with session.get(f"{GAMMA_API_URL}/markets", params=params) as response:
+            if response.status == 200:
+                return await response.json()
+            elif response.status == 429:
+                # Rate limited, wait and retry
+                logger.warning("Rate limited, waiting 5 seconds...")
+                await asyncio.sleep(5)
+                return await fetch_closed_markets_batch(session, offset, limit)
+            else:
+                logger.warning(f"Markets API returned {response.status}")
+                return []
+    except Exception as e:
+        logger.error(f"Error fetching closed markets: {e}")
+        return []
+
+
+async def fetch_all_closed_markets(session: aiohttp.ClientSession) -> Dict[str, Dict]:
+    """
+    Bulk fetch all closed markets and return as lookup dict.
+
+    Returns: Dict mapping market_id -> market data
+    """
+    closed_markets = {}
+    offset = 0
+
+    logger.info("Fetching closed markets in bulk...")
+
+    while True:
+        batch = await fetch_closed_markets_batch(session, offset=offset)
+
+        if not batch:
+            break
+
+        for market in batch:
+            market_id = market.get("id")
+            if market_id:
+                closed_markets[market_id] = market
+
+        logger.info(f"Fetched {len(closed_markets)} closed markets (offset={offset})")
+
+        if len(batch) < BATCH_SIZE:
+            # Last page
+            break
+
+        offset += BATCH_SIZE
+        await asyncio.sleep(REQUEST_DELAY)
+
+    logger.info(f"Total closed markets fetched: {len(closed_markets)}")
+    return closed_markets
+
+
+async def fetch_market_by_id(session: aiohttp.ClientSession, market_id: str) -> Optional[Dict]:
+    """Fallback: fetch individual market if not found in bulk."""
     try:
         async with session.get(f"{GAMMA_API_URL}/markets/{market_id}") as response:
             if response.status == 200:
                 return await response.json()
-            else:
-                logger.warning(f"Failed to fetch market {market_id}: {response.status}")
-                return {}
+            return None
     except Exception as e:
         logger.error(f"Error fetching market {market_id}: {e}")
-        return {}
+        return None
 
 
-def parse_resolution(market_data: dict) -> tuple:
+def parse_resolution(market_data: Dict) -> Tuple[Optional[str], Optional[int]]:
     """
     Parse market data to determine resolution status.
 
+    Uses multiple indicators (similar to poly_data):
+    - closedTime: timestamp when market closed
+    - closed: boolean flag
+    - resolved: boolean flag
+    - winningOutcome: the winning side
+    - outcomePrices: final prices (winner = 1.0)
+
     Returns: (resolved_outcome, resolved_at) or (None, None) if not resolved
     """
-    # Check various resolution indicators
+    # Check if market is closed/resolved
     closed = market_data.get("closed", False)
     resolved = market_data.get("resolved", False)
+    closed_time = market_data.get("closedTime")
 
-    if not (closed or resolved):
+    # If not closed at all, skip
+    if not (closed or resolved or closed_time):
         return None, None
 
-    # Get winning outcome
+    # Get winning outcome - try multiple fields
     winning_outcome = market_data.get("winningOutcome")
 
     if winning_outcome is None:
         # Try to determine from outcome prices
         outcome_prices = market_data.get("outcomePrices", [])
         if isinstance(outcome_prices, str):
-            import json
-            outcome_prices = json.loads(outcome_prices)
+            try:
+                outcome_prices = json.loads(outcome_prices)
+            except json.JSONDecodeError:
+                outcome_prices = []
 
         if len(outcome_prices) >= 2:
-            yes_price = float(outcome_prices[0])
-            no_price = float(outcome_prices[1])
+            try:
+                yes_price = float(outcome_prices[0])
+                no_price = float(outcome_prices[1])
 
-            # If resolved, one price should be 1.0 (or very close)
-            if yes_price > 0.95:
-                winning_outcome = "Yes"
-            elif no_price > 0.95:
-                winning_outcome = "No"
+                # If resolved, one price should be 1.0 (or very close)
+                if yes_price > 0.95:
+                    winning_outcome = "Yes"
+                elif no_price > 0.95:
+                    winning_outcome = "No"
+            except (ValueError, TypeError):
+                pass
 
     if winning_outcome is None:
+        # Market is closed but outcome not determined yet
         return None, None
 
     # Normalize outcome to YES/NO
-    resolved_outcome = "YES" if winning_outcome.lower() in ["yes", "true", "1"] else "NO"
+    if isinstance(winning_outcome, str):
+        resolved_outcome = "YES" if winning_outcome.lower() in ["yes", "true", "1"] else "NO"
+    else:
+        resolved_outcome = "YES" if winning_outcome else "NO"
 
-    # Get resolution timestamp
-    resolved_at = market_data.get("resolvedAt") or market_data.get("closedAt")
+    # Get resolution timestamp - prefer closedTime (poly_data approach)
+    resolved_at = closed_time or market_data.get("resolvedAt") or market_data.get("closedAt")
+
     if resolved_at:
         try:
             if isinstance(resolved_at, str):
@@ -100,50 +187,80 @@ def parse_resolution(market_data: dict) -> tuple:
 
 
 async def main():
-    """Main function to check and update market resolutions."""
+    """Main function to check and update market resolutions using bulk fetching."""
     # Initialize repository
     project_root = Path(__file__).parent.parent
     db_path = project_root / DEFAULT_DB_PATH
     repo = ScannerRepository(str(db_path))
 
-    # Get unresolved flagged markets
+    # Get unresolved flagged markets from our database
     unresolved = repo.get_unresolved_flagged_markets()
 
     if not unresolved:
         logger.info("No unresolved markets to check")
         return
 
-    logger.info(f"Checking {len(unresolved)} unresolved markets...")
+    logger.info(f"Have {len(unresolved)} unresolved markets to check")
+
+    # Build set of market IDs we need to check
+    unresolved_ids = {m["market_id"] for m in unresolved}
+    unresolved_map = {m["market_id"]: m for m in unresolved}
 
     resolved_count = 0
 
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-        for market in unresolved:
-            market_id = market["market_id"]
+        # Step 1: Bulk fetch all closed markets
+        closed_markets = await fetch_all_closed_markets(session)
 
-            # Fetch market status
-            market_data = await fetch_market_status(session, market_id)
+        # Step 2: Check our unresolved markets against closed markets
+        found_in_bulk = 0
+        not_found = []
 
-            if not market_data:
-                continue
+        for market_id in unresolved_ids:
+            if market_id in closed_markets:
+                found_in_bulk += 1
+                market_data = closed_markets[market_id]
 
-            # Parse resolution
-            resolved_outcome, resolved_at = parse_resolution(market_data)
+                resolved_outcome, resolved_at = parse_resolution(market_data)
 
-            if resolved_outcome:
-                # Update backtest snapshot
-                repo.update_backtest_resolution(
-                    market_id=market_id,
-                    resolved_outcome=resolved_outcome,
-                    resolved_at=resolved_at,
-                )
-                resolved_count += 1
-                logger.info(f"Resolved: {market['question'][:50]}... -> {resolved_outcome}")
+                if resolved_outcome:
+                    repo.update_backtest_resolution(
+                        market_id=market_id,
+                        resolved_outcome=resolved_outcome,
+                        resolved_at=resolved_at,
+                    )
+                    resolved_count += 1
+                    question = unresolved_map[market_id].get("question", "")[:50]
+                    logger.info(f"Resolved: {question}... -> {resolved_outcome}")
+            else:
+                not_found.append(market_id)
 
-            # Rate limiting
-            await asyncio.sleep(0.1)
+        logger.info(f"Found {found_in_bulk} markets in bulk fetch, {len(not_found)} not found")
 
-    logger.info(f"Updated {resolved_count} market resolutions")
+        # Step 3: Fallback - fetch individual markets not found in bulk
+        # (These might be recently closed or have different status)
+        if not_found:
+            logger.info(f"Checking {len(not_found)} markets individually...")
+
+            for market_id in not_found:
+                market_data = await fetch_market_by_id(session, market_id)
+
+                if market_data:
+                    resolved_outcome, resolved_at = parse_resolution(market_data)
+
+                    if resolved_outcome:
+                        repo.update_backtest_resolution(
+                            market_id=market_id,
+                            resolved_outcome=resolved_outcome,
+                            resolved_at=resolved_at,
+                        )
+                        resolved_count += 1
+                        question = unresolved_map[market_id].get("question", "")[:50]
+                        logger.info(f"Resolved (fallback): {question}... -> {resolved_outcome}")
+
+                await asyncio.sleep(0.1)
+
+    logger.info(f"\nUpdated {resolved_count} market resolutions")
 
     # Print summary stats
     stats = repo.get_backtest_stats()
