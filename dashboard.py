@@ -639,7 +639,9 @@ def render_backtest_tab(repo):
                 condition_ids = [m["condition_id"] for m in unresolved if m.get("condition_id")]
                 with st.spinner(f"Fetching prices for {len(condition_ids)} markets..."):
                     try:
-                        prices = asyncio.run(fetch_prices_for_trades(condition_ids))
+                        loop = asyncio.new_event_loop()
+                        prices = loop.run_until_complete(fetch_prices_for_trades(condition_ids))
+                        loop.close()
                         st.session_state["backtest_prices"] = prices
                         st.session_state["backtest_last_refresh"] = int(datetime.now().timestamp())
                         st.success(f"Updated {len(prices)} markets")
