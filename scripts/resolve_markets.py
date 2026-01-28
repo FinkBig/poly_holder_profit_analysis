@@ -39,11 +39,13 @@ async def fetch_closed_markets_batch(
     offset: int = 0,
     limit: int = BATCH_SIZE
 ) -> List[Dict]:
-    """Fetch a batch of closed markets from Gamma API."""
+    """Fetch a batch of closed markets from Gamma API, ordered by newest first."""
     params = {
         "closed": "true",
         "limit": limit,
         "offset": offset,
+        "order": "id",
+        "ascending": "false",  # Newest first
     }
 
     try:
@@ -63,29 +65,59 @@ async def fetch_closed_markets_batch(
         return []
 
 
-async def fetch_all_closed_markets(session: aiohttp.ClientSession) -> Dict[str, Dict]:
+async def fetch_recent_closed_markets(
+    session: aiohttp.ClientSession,
+    target_ids: set,
+    max_pages: int = 20
+) -> Dict[str, Dict]:
     """
-    Bulk fetch all closed markets and return as lookup dict.
+    Fetch recent closed markets until we find all target IDs or hit max pages.
+
+    Args:
+        session: aiohttp session
+        target_ids: Set of market IDs we're looking for
+        max_pages: Maximum pages to fetch (default 20 = 10,000 markets)
 
     Returns: Dict mapping market_id -> market data
     """
     closed_markets = {}
     offset = 0
+    found_count = 0
 
-    logger.info("Fetching closed markets in bulk...")
+    # Find min ID we're looking for to know when to stop
+    min_target_id = min(int(mid) for mid in target_ids if mid.isdigit()) if target_ids else 0
 
-    while True:
+    logger.info(f"Fetching recent closed markets (looking for {len(target_ids)} markets, min_id={min_target_id})...")
+
+    for page in range(max_pages):
         batch = await fetch_closed_markets_batch(session, offset=offset)
 
         if not batch:
             break
 
+        batch_min_id = float('inf')
         for market in batch:
-            market_id = market.get("id")
+            market_id = str(market.get("id", ""))
             if market_id:
                 closed_markets[market_id] = market
+                if market_id in target_ids:
+                    found_count += 1
+                try:
+                    batch_min_id = min(batch_min_id, int(market_id))
+                except ValueError:
+                    pass
 
-        logger.info(f"Fetched {len(closed_markets)} closed markets (offset={offset})")
+        logger.info(f"Page {page+1}: fetched {len(batch)} markets, found {found_count}/{len(target_ids)} targets")
+
+        # Stop early if we found all targets
+        if found_count >= len(target_ids):
+            logger.info("Found all target markets!")
+            break
+
+        # Stop if we've gone past all target IDs (oldest batch ID < min target ID)
+        if batch_min_id < min_target_id:
+            logger.info(f"Reached markets older than our targets (batch_min={batch_min_id} < min_target={min_target_id})")
+            break
 
         if len(batch) < BATCH_SIZE:
             # Last page
@@ -94,7 +126,7 @@ async def fetch_all_closed_markets(session: aiohttp.ClientSession) -> Dict[str, 
         offset += BATCH_SIZE
         await asyncio.sleep(REQUEST_DELAY)
 
-    logger.info(f"Total closed markets fetched: {len(closed_markets)}")
+    logger.info(f"Total: fetched {len(closed_markets)} markets, found {found_count} targets")
     return closed_markets
 
 
@@ -209,8 +241,8 @@ async def main():
     resolved_count = 0
 
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-        # Step 1: Bulk fetch all closed markets
-        closed_markets = await fetch_all_closed_markets(session)
+        # Step 1: Bulk fetch recent closed markets (newest first, stop when we find all targets)
+        closed_markets = await fetch_recent_closed_markets(session, unresolved_ids)
 
         # Step 2: Check our unresolved markets against closed markets
         found_in_bulk = 0
