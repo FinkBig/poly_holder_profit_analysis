@@ -704,12 +704,18 @@ class ScannerRepository:
             flagged_side, price_at_flag = snapshot
             predicted_correct = 1 if flagged_side == resolved_outcome else 0
 
-            # Calculate theoretical PNL (assuming 1 unit bet)
-            if price_at_flag:
+            # Calculate theoretical PNL (assuming 1 unit bet on flagged side)
+            if price_at_flag is not None:
+                # Entry price depends on which side we flag
+                if flagged_side == "YES":
+                    entry_price = price_at_flag
+                else:  # NO
+                    entry_price = 1 - price_at_flag
+
                 if predicted_correct:
-                    theoretical_pnl = (1 - price_at_flag)  # Win: payout - cost
+                    theoretical_pnl = 1 - entry_price  # Win: payout (1) - cost
                 else:
-                    theoretical_pnl = -price_at_flag  # Loss: lose the cost
+                    theoretical_pnl = -entry_price  # Loss: lose our stake
             else:
                 theoretical_pnl = None
 
