@@ -704,7 +704,8 @@ class ScannerRepository:
             flagged_side, price_at_flag = snapshot
             predicted_correct = 1 if flagged_side == resolved_outcome else 0
 
-            # Calculate theoretical PNL (assuming 1 unit bet on flagged side)
+            # Calculate theoretical PNL (risking $1 per trade)
+            # This normalizes risk across all trades regardless of price
             if price_at_flag is not None:
                 # Entry price depends on which side we flag
                 if flagged_side == "YES":
@@ -712,10 +713,16 @@ class ScannerRepository:
                 else:  # NO
                     entry_price = 1 - price_at_flag
 
-                if predicted_correct:
-                    theoretical_pnl = 1 - entry_price  # Win: payout (1) - cost
+                # Risk $1 per trade: shares = $1 / entry_price
+                # Win: shares * $1 payout - $1 cost = (1/entry - 1) * $1
+                # Loss: -$1 (lose our stake)
+                if entry_price > 0:
+                    if predicted_correct:
+                        theoretical_pnl = (1 / entry_price) - 1  # Win
+                    else:
+                        theoretical_pnl = -1  # Loss: always lose $1
                 else:
-                    theoretical_pnl = -entry_price  # Loss: lose our stake
+                    theoretical_pnl = 0  # Edge case: free money or invalid
             else:
                 theoretical_pnl = None
 

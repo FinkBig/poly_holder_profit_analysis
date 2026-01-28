@@ -27,7 +27,9 @@ from src.config.settings import (
     MIN_HOLDER_COUNT,
     BATCH_SIZE,
     BATCH_DELAY_SECONDS,
-    MAX_DAYS_TO_EXPIRY
+    MAX_DAYS_TO_EXPIRY,
+    MIN_PRICE,
+    MAX_PRICE,
 )
 
 logging.basicConfig(
@@ -141,21 +143,30 @@ async def run_scan(
                     scanned_count += 1
 
                     if scan_result.is_flagged:
+                        # Calculate entry price for flagged side
+                        entry_price = market.yes_price if scan_result.flagged_side == "YES" else market.no_price
+
+                        # Apply price filter - skip untradeable extreme prices
+                        if entry_price < MIN_PRICE or entry_price > MAX_PRICE:
+                            logger.debug(
+                                f"Skipping {market.question[:40]}... - price ${entry_price:.3f} outside {MIN_PRICE}-{MAX_PRICE} range"
+                            )
+                            continue
+
                         flagged_count += 1
                         logger.info(
                             f"FLAGGED: {market.question[:60]}... "
-                            f"({scan_result.flagged_side} side: {scan_result.profitable_skew_yes if scan_result.flagged_side == 'YES' else scan_result.profitable_skew_no:.1%} profitable)"
+                            f"({scan_result.flagged_side} side @ ${entry_price:.2f}: {scan_result.profitable_skew_yes if scan_result.flagged_side == 'YES' else scan_result.profitable_skew_no:.1%} profitable)"
                         )
 
                         # Create backtest snapshot for tracking accuracy
                         edge_pct = abs(scan_result.profitable_skew_yes - scan_result.profitable_skew_no) * 100
-                        price_at_flag = market.yes_price if scan_result.flagged_side == "YES" else market.no_price
                         repo.create_backtest_snapshot(
                             market_id=market.market_id,
                             scan_result_id=None,  # Will be linked later
                             flagged_side=scan_result.flagged_side,
                             edge_pct=edge_pct,
-                            price_at_flag=price_at_flag,
+                            price_at_flag=entry_price,
                             flagged_at=scan_result.scanned_at,
                         )
 

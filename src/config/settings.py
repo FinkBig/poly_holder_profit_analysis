@@ -25,3 +25,5 @@ DEFAULT_DB_PATH = "data/scanner.db"
 MIN_LIQUIDITY = 1000  # Skip low-liquidity markets ($)
 MIN_HOLDER_COUNT = 5  # Need at least N holders per side to analyze
 MAX_DAYS_TO_EXPIRY = 14  # Only scan markets expiring within 2 weeks
+MIN_PRICE = 0.05  # Skip if flagged side price < 5¢ (untradeable)
+MAX_PRICE = 0.95  # Skip if flagged side price > 95¢ (untradeable)
