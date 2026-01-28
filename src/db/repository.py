@@ -738,38 +738,107 @@ class ScannerRepository:
             conn.close()
 
     def get_backtest_stats(self) -> Dict:
-        """Get overall backtest accuracy statistics."""
+        """Get overall backtest accuracy statistics with half-Kelly sizing."""
         conn = self._get_conn()
         try:
             # Total snapshots
             total = conn.execute("SELECT COUNT(*) FROM backtest_snapshots").fetchone()[0]
 
-            # Resolved snapshots
-            resolved = conn.execute(
-                "SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NOT NULL"
-            ).fetchone()[0]
+            # Get all resolved snapshots with price filter (0.10 to 0.90 entry price)
+            rows = conn.execute(
+                """
+                SELECT flagged_side, price_at_flag, edge_pct, predicted_correct, theoretical_pnl
+                FROM backtest_snapshots
+                WHERE resolved_outcome IS NOT NULL
+                AND price_at_flag IS NOT NULL
+                """
+            ).fetchall()
 
-            # Correct predictions
-            correct = conn.execute(
-                "SELECT COUNT(*) FROM backtest_snapshots WHERE predicted_correct = 1"
-            ).fetchone()[0]
+            resolved = 0
+            correct = 0
+            total_pnl_flat = 0  # Flat $1 bets
+            total_pnl_kelly = 0  # Half-Kelly sized bets
+            total_wagered_flat = 0
+            total_wagered_kelly = 0
+            filtered_out = 0
 
-            # Total theoretical PNL
-            pnl_row = conn.execute(
-                "SELECT SUM(theoretical_pnl) FROM backtest_snapshots WHERE theoretical_pnl IS NOT NULL"
-            ).fetchone()
-            total_pnl = pnl_row[0] if pnl_row[0] else 0
+            for row in rows:
+                side = row["flagged_side"]
+                price = row["price_at_flag"]
+                edge = row["edge_pct"] or 60
+                is_correct = row["predicted_correct"]
+                flat_pnl = row["theoretical_pnl"] or 0
+
+                # Calculate entry price
+                entry_price = price if side == "YES" else (1 - price)
+
+                # No price filter - trade all markets where scanner has edge
+                resolved += 1
+                if is_correct:
+                    correct += 1
+
+                # Flat betting PNL
+                total_pnl_flat += flat_pnl
+                total_wagered_flat += entry_price
+
+                # Half-Kelly calculation
+                # Convert edge % to estimated win probability
+                # Edge 60% -> ~60% win prob, Edge 80% -> ~80% win prob
+                est_win_prob = min(0.95, edge / 100)  # Cap at 95%
+                est_loss_prob = 1 - est_win_prob
+
+                # Odds (potential profit / stake), capped at 20x for realistic liquidity
+                if entry_price > 0:
+                    odds = (1 - entry_price) / entry_price
+                    odds = min(odds, 20)  # Cap at 20x (realistic for most markets)
+                else:
+                    odds = 20  # Cap for near-zero prices
+
+                # Kelly fraction: f = (bp - q) / b
+                if odds > 0:
+                    kelly_fraction = (odds * est_win_prob - est_loss_prob) / odds
+                    kelly_fraction = max(0, min(1, kelly_fraction))  # Clamp 0-1
+                else:
+                    kelly_fraction = 0
+
+                # Half-Kelly for safety, capped at 25% of bankroll per bet
+                half_kelly = kelly_fraction / 2
+                half_kelly = min(half_kelly, 0.25)  # Max 25% per bet
+
+                # Calculate Kelly-sized PNL (assuming $100 bankroll)
+                bet_size = half_kelly * 100  # Bet amount
+                bet_size = max(1, bet_size)  # Minimum $1 bet
+                if is_correct:
+                    kelly_pnl = bet_size * odds  # Win (use capped odds)
+                else:
+                    kelly_pnl = -bet_size  # Lose stake
+
+                total_pnl_kelly += kelly_pnl
+                total_wagered_kelly += bet_size
 
             accuracy = correct / resolved if resolved > 0 else 0
+            roi_flat = (total_pnl_flat / total_wagered_flat * 100) if total_wagered_flat > 0 else 0
+            roi_kelly = (total_pnl_kelly / total_wagered_kelly * 100) if total_wagered_kelly > 0 else 0
+
+            # Pending count (unresolved)
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NULL"
+            ).fetchone()[0]
 
             return {
                 "total_flagged": total,
                 "resolved": resolved,
-                "pending": total - resolved,
+                "pending": pending,
+                "filtered_out": filtered_out,
                 "correct": correct,
                 "incorrect": resolved - correct,
                 "accuracy": accuracy,
-                "total_pnl": total_pnl,
+                "total_pnl": total_pnl_flat,
+                "total_wagered": total_wagered_flat,
+                "roi_pct": roi_flat,
+                "kelly_pnl": total_pnl_kelly,
+                "kelly_wagered": total_wagered_kelly,
+                "kelly_roi_pct": roi_kelly,
             }
         finally:
             conn.close()

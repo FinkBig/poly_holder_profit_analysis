@@ -619,14 +619,42 @@ def render_backtest_tab(repo):
     """Render the Backtest tab with performance analysis and refresh functionality."""
     st.markdown("<div class='terminal-header'>SCANNER PERFORMANCE ANALYSIS</div>", unsafe_allow_html=True)
 
-    # Stats Row (top)
+    # Stats Row (top) - Core metrics
     stats = repo.get_backtest_stats()
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total Flagged", stats["total_flagged"])
-    col2.metric("Resolved", stats["resolved"])
+    col2.metric("Resolved", stats["resolved"], help="Markets within 10¢-90¢ price range")
     col3.metric("Pending", stats["pending"])
     col4.metric("Accuracy", f"{stats['accuracy']:.1%}" if stats["resolved"] > 0 else "N/A")
-    col5.metric("Theoretical PNL", f"${stats['total_pnl']:.2f}")
+    col5.metric("Win/Loss", f"{stats['correct']}/{stats['incorrect']}")
+
+    # Stats Row 2 - PNL metrics
+    st.markdown("#### 💰 Performance")
+    pnl_col1, pnl_col2, pnl_col3, pnl_col4 = st.columns(4)
+
+    # Flat betting metrics
+    pnl_col1.metric(
+        "Flat PNL",
+        f"${stats['total_pnl']:.2f}",
+        help="PNL with flat $1 bets on each signal"
+    )
+    pnl_col2.metric(
+        "Flat ROI",
+        f"{stats['roi_pct']:.1f}%",
+        help="Return on investment (PNL / Total Wagered)"
+    )
+
+    # Half-Kelly metrics
+    pnl_col3.metric(
+        "Half-Kelly PNL",
+        f"${stats['kelly_pnl']:.2f}",
+        help="PNL using half-Kelly position sizing ($100 bankroll)"
+    )
+    pnl_col4.metric(
+        "Half-Kelly ROI",
+        f"{stats['kelly_roi_pct']:.1f}%",
+        help="ROI with half-Kelly sizing"
+    )
 
     st.markdown("---")
 
