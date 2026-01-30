@@ -158,6 +158,18 @@ class ScannerRepository:
         finally:
             conn.close()
 
+    def update_market_category(self, market_id: str, category: str) -> None:
+        """Update the category for a market."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE markets SET category = ? WHERE market_id = ? AND (category IS NULL OR category = '')",
+                (category, market_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_unique_categories(self) -> List[str]:
         """Get all unique categories from markets table."""
         conn = self._get_conn()
@@ -784,17 +796,18 @@ class ScannerRepository:
         """Get accuracy breakdown by edge level at flag time."""
         conn = self._get_conn()
         try:
+            price_filter = "price_at_flag BETWEEN 0.05 AND 0.95"
             buckets = [
                 (60, 65),
                 (65, 70),
                 (70, 75),
                 (75, 80),
-                (80, 100),
+                (80, 101),  # Include 100% edge
             ]
             results = []
             for low, high in buckets:
                 row = conn.execute(
-                    """
+                    f"""
                     SELECT
                         COUNT(*) as total,
                         SUM(CASE WHEN predicted_correct = 1 THEN 1 ELSE 0 END) as correct,
@@ -802,6 +815,7 @@ class ScannerRepository:
                     FROM backtest_snapshots
                     WHERE edge_pct >= ? AND edge_pct < ?
                     AND resolved_outcome IS NOT NULL
+                    AND {price_filter}
                     """,
                     (low, high),
                 ).fetchone()
@@ -822,8 +836,9 @@ class ScannerRepository:
         """Get accuracy breakdown by market category."""
         conn = self._get_conn()
         try:
+            price_filter = "b.price_at_flag BETWEEN 0.05 AND 0.95"
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     m.category,
                     COUNT(*) as total,
@@ -832,7 +847,8 @@ class ScannerRepository:
                 FROM backtest_snapshots b
                 JOIN markets m ON b.market_id = m.market_id
                 WHERE b.resolved_outcome IS NOT NULL
-                AND m.category IS NOT NULL
+                AND m.category IS NOT NULL AND m.category != ''
+                AND {price_filter}
                 GROUP BY m.category
                 ORDER BY total DESC
                 """

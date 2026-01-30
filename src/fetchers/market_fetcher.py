@@ -113,14 +113,16 @@ class ActiveMarketFetcher:
 
             # Determine slug and category (prefer event data if available)
             slug = raw.get("slug", "")
-            category = None
+            category = raw.get("category")  # Top-level category
             events = raw.get("events", [])
             if events and isinstance(events, list) and len(events) > 0:
                 event_slug = events[0].get("slug")
                 if event_slug:
                     slug = event_slug
-                # Extract category from event
-                category = events[0].get("category")
+                # Prefer event-level category if available
+                event_category = events[0].get("category")
+                if event_category:
+                    category = event_category
 
             return ActiveMarket(
                 market_id=raw.get("id", ""),
@@ -139,6 +141,65 @@ class ActiveMarketFetcher:
         except Exception as e:
             logger.warning(f"Failed to parse market: {e}")
             return None
+
+    # Broad category tags in priority order
+    BROAD_CATEGORIES = {
+        'politics', 'crypto', 'sports', 'finance', 'tech', 'science',
+        'entertainment', 'world', 'economy', 'business', 'culture',
+        'u.s. politics', 'pop culture', 'climate', 'ai',
+    }
+
+    def _pick_category_from_tags(self, tags: List[Dict]) -> Optional[str]:
+        """Pick the most relevant broad category from event tags."""
+        if not tags:
+            return None
+        tag_labels = [t.get("label", "") for t in tags if t.get("label")]
+        # Check broad categories first
+        for label in tag_labels:
+            if label.lower() in self.BROAD_CATEGORIES:
+                return label
+        # Fallback: first tag
+        return tag_labels[0] if tag_labels else None
+
+    async def fetch_event_category(self, slug: str) -> Optional[str]:
+        """Fetch category for a market by looking up its event tags."""
+        if not slug:
+            return None
+        try:
+            async with self.session.get(
+                f"{GAMMA_API_URL}/events", params={"slug": slug}
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data and isinstance(data, list) and len(data) > 0:
+                        tags = data[0].get("tags", [])
+                        return self._pick_category_from_tags(tags)
+        except Exception as e:
+            logger.debug(f"Failed to fetch event category for {slug}: {e}")
+        return None
+
+    async def backfill_categories(
+        self, markets: List[ActiveMarket]
+    ) -> Dict[str, str]:
+        """Fetch categories for a list of markets via their event slugs.
+
+        Returns dict mapping market_id -> category.
+        """
+        # Deduplicate by slug
+        slug_to_market_ids: Dict[str, List[str]] = {}
+        for m in markets:
+            if m.slug:
+                slug_to_market_ids.setdefault(m.slug, []).append(m.market_id)
+
+        result = {}
+        for slug, market_ids in slug_to_market_ids.items():
+            category = await self.fetch_event_category(slug)
+            if category:
+                for mid in market_ids:
+                    result[mid] = category
+            await asyncio.sleep(REQUEST_DELAY_SECONDS)
+
+        return result
 
     async def fetch_all_active_markets(
         self,

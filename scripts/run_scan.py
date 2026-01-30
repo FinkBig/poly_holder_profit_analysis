@@ -187,6 +187,16 @@ async def run_scan(
             f"{flagged_count}/{scanned_count} markets flagged"
         )
 
+        # Step 4: Backfill categories for flagged markets
+        logger.info("Step 4: Backfilling categories for flagged markets...")
+        flagged_markets = [m for m in markets if m.category is None and m.slug]
+        if flagged_markets:
+            async with ActiveMarketFetcher() as cat_fetcher:
+                cat_map = await cat_fetcher.backfill_categories(flagged_markets)
+                for mid, cat in cat_map.items():
+                    repo.update_market_category(mid, cat)
+                logger.info(f"Backfilled categories for {len(cat_map)} markets")
+
         # Print summary
         print("\n" + "=" * 60)
         print("SCAN SUMMARY")
