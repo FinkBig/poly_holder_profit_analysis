@@ -705,24 +705,15 @@ class ScannerRepository:
             predicted_correct = 1 if flagged_side == resolved_outcome else 0
 
             # Calculate theoretical PNL (risking $1 per trade)
-            # This normalizes risk across all trades regardless of price
-            if price_at_flag is not None:
-                # Entry price depends on which side we flag
-                if flagged_side == "YES":
-                    entry_price = price_at_flag
-                else:  # NO
-                    entry_price = 1 - price_at_flag
-
-                # Risk $1 per trade: shares = $1 / entry_price
-                # Win: shares * $1 payout - $1 cost = (1/entry - 1) * $1
+            # price_at_flag is already the flagged side's price
+            if price_at_flag is not None and price_at_flag > 0:
+                # Risk $1 per trade: shares = $1 / price_at_flag
+                # Win: shares * $1 payout - $1 cost = (1/price - 1)
                 # Loss: -$1 (lose our stake)
-                if entry_price > 0:
-                    if predicted_correct:
-                        theoretical_pnl = (1 / entry_price) - 1  # Win
-                    else:
-                        theoretical_pnl = -1  # Loss: always lose $1
+                if predicted_correct:
+                    theoretical_pnl = (1 / price_at_flag) - 1  # Win
                 else:
-                    theoretical_pnl = 0  # Edge case: free money or invalid
+                    theoretical_pnl = -1  # Loss: always lose $1
             else:
                 theoretical_pnl = None
 
@@ -748,27 +739,30 @@ class ScannerRepository:
         """Get overall backtest accuracy statistics."""
         conn = self._get_conn()
         try:
+            # Price filter: only count trades with entry price in tradeable range
+            price_filter = "price_at_flag BETWEEN 0.05 AND 0.95"
+
             # Total snapshots
-            total = conn.execute("SELECT COUNT(*) FROM backtest_snapshots").fetchone()[0]
+            total = conn.execute(f"SELECT COUNT(*) FROM backtest_snapshots WHERE {price_filter}").fetchone()[0]
 
             # Resolved snapshots
             resolved = conn.execute(
-                "SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NOT NULL"
+                f"SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NOT NULL AND {price_filter}"
             ).fetchone()[0]
 
             # Pending snapshots
             pending = conn.execute(
-                "SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NULL"
+                f"SELECT COUNT(*) FROM backtest_snapshots WHERE resolved_outcome IS NULL AND {price_filter}"
             ).fetchone()[0]
 
             # Correct predictions
             correct = conn.execute(
-                "SELECT COUNT(*) FROM backtest_snapshots WHERE predicted_correct = 1"
+                f"SELECT COUNT(*) FROM backtest_snapshots WHERE predicted_correct = 1 AND {price_filter}"
             ).fetchone()[0]
 
             # Total theoretical PNL
             pnl_row = conn.execute(
-                "SELECT SUM(theoretical_pnl) FROM backtest_snapshots WHERE theoretical_pnl IS NOT NULL"
+                f"SELECT SUM(theoretical_pnl) FROM backtest_snapshots WHERE theoretical_pnl IS NOT NULL AND {price_filter}"
             ).fetchone()
             total_pnl = pnl_row[0] if pnl_row[0] else 0
 
